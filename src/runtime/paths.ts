@@ -7,6 +7,7 @@ export interface RuntimePaths {
   appHome: string;
   envFilePath: string;
   settingsFilePath: string;
+  settingsDbFilePath: string;
   logsDirPath: string;
   runDirPath: string;
 }
@@ -49,6 +50,7 @@ export function getRuntimePaths(): RuntimePaths {
     appHome,
     envFilePath: path.join(appHome, ".env"),
     settingsFilePath: path.join(appHome, "settings.json"),
+    settingsDbFilePath: path.join(appHome, "settings.sqlite"),
     logsDirPath: path.join(appHome, "logs"),
     runDirPath: path.join(appHome, "run"),
   };

@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setRuntimeMode } from "../../src/runtime/mode.js";
 import {
+  __getSettingsMigrationLogForTests,
+  __readStoredSettingsForTests,
   __resetSettingsForTests,
   __waitForSettingsWritesForTests,
   getCurrentAgent,
@@ -40,45 +42,39 @@ describe("settings migration", () => {
   });
 
   it("migrates v1 flat settings to nested v2 on load", async () => {
-    await writeFile(
-      settingsPath,
-      JSON.stringify(
-        {
-          scopedProjects: {
-            "chat:-1001": { id: "proj-general", worktree: "/repo/general" },
-            "-1001:22": { id: "proj-topic", worktree: "/repo/topic" },
-          },
-          scopedSessions: {
-            "-1001:22": { id: "ses-topic", title: "Topic Session", directory: "/repo/topic" },
-          },
-          scopedAgents: {
-            "chat:-1001": "plan",
-          },
-          scopedModels: {
-            "-1001:22": { providerID: "openai", modelID: "gpt-5", variant: "default" },
-          },
-          scopedPinnedMessageIds: {
-            "chat:-1001": 77,
-          },
-          topicSessionBindings: {
-            "-1001:22": {
-              scopeKey: "-1001:22",
-              chatId: -1001,
-              threadId: 22,
-              sessionId: "ses-topic",
-              projectId: "proj-topic",
-              projectWorktree: "/repo/topic",
-              topicName: "Topic Session",
-              status: "active",
-              createdAt: 100,
-              updatedAt: 200,
-            },
-          },
+    const original = {
+      scopedProjects: {
+        "chat:-1001": { id: "proj-general", worktree: "/repo/general" },
+        "-1001:22": { id: "proj-topic", worktree: "/repo/topic" },
+      },
+      scopedSessions: {
+        "-1001:22": { id: "ses-topic", title: "Topic Session", directory: "/repo/topic" },
+      },
+      scopedAgents: {
+        "chat:-1001": "plan",
+      },
+      scopedModels: {
+        "-1001:22": { providerID: "openai", modelID: "gpt-5", variant: "default" },
+      },
+      scopedPinnedMessageIds: {
+        "chat:-1001": 77,
+      },
+      topicSessionBindings: {
+        "-1001:22": {
+          scopeKey: "-1001:22",
+          chatId: -1001,
+          threadId: 22,
+          sessionId: "ses-topic",
+          projectId: "proj-topic",
+          projectWorktree: "/repo/topic",
+          topicName: "Topic Session",
+          status: "active",
+          createdAt: 100,
+          updatedAt: 200,
         },
-        null,
-        2,
-      ),
-    );
+      },
+    };
+    await writeFile(settingsPath, JSON.stringify(original, null, 2));
 
     await loadSettings();
 
@@ -90,7 +86,7 @@ describe("settings migration", () => {
     expect(getScopedPinnedMessageId("chat:-1001")).toBe(77);
     expect(getTopicSessionBinding("-1001:22")?.sessionId).toBe("ses-topic");
 
-    const migrated = JSON.parse(await readFile(settingsPath, "utf-8")) as {
+    const stored = __readStoredSettingsForTests() as {
       settingsVersion: number;
       groups: Record<
         string,
@@ -110,18 +106,26 @@ describe("settings migration", () => {
       scopedProjects?: unknown;
     };
 
-    expect(migrated.settingsVersion).toBe(2);
-    expect(migrated.scopedProjects).toBeUndefined();
-    expect(migrated.groups["-1001"]?.general?.project?.id).toBe("proj-general");
-    expect(migrated.groups["-1001"]?.general?.agent).toBe("plan");
-    expect(migrated.groups["-1001"]?.general?.pinnedMessageId).toBe(77);
-    expect(migrated.groups["-1001"]?.topics?.["22"]?.project?.id).toBe("proj-topic");
-    expect(migrated.groups["-1001"]?.topics?.["22"]?.session?.id).toBe("ses-topic");
-    expect(migrated.groups["-1001"]?.topics?.["22"]?.model?.modelID).toBe("gpt-5");
-    expect(migrated.groups["-1001"]?.topics?.["22"]?.binding?.sessionId).toBe("ses-topic");
+    expect(stored.settingsVersion).toBe(2);
+    expect(stored.scopedProjects).toBeUndefined();
+    expect(stored.groups["-1001"]?.general?.project?.id).toBe("proj-general");
+    expect(stored.groups["-1001"]?.general?.agent).toBe("plan");
+    expect(stored.groups["-1001"]?.general?.pinnedMessageId).toBe(77);
+    expect(stored.groups["-1001"]?.topics?.["22"]?.project?.id).toBe("proj-topic");
+    expect(stored.groups["-1001"]?.topics?.["22"]?.session?.id).toBe("ses-topic");
+    expect(stored.groups["-1001"]?.topics?.["22"]?.model?.modelID).toBe("gpt-5");
+    expect(stored.groups["-1001"]?.topics?.["22"]?.binding?.sessionId).toBe("ses-topic");
+
+    const migratedLog = __getSettingsMigrationLogForTests();
+    expect(migratedLog.some((entry) => entry.source === "settings.json")).toBe(true);
+
+    await expect(readFile(`${settingsPath}.migrated`, "utf-8")).resolves.toBe(
+      JSON.stringify(original, null, 2),
+    );
+    await expect(readFile(settingsPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("writes new mutations directly into nested v2 structure", async () => {
+  it("writes new mutations directly into nested structure", async () => {
     await loadSettings();
 
     setCurrentProject({ id: "proj-general", worktree: "/repo/general" }, "chat:-2002");
@@ -142,7 +146,7 @@ describe("settings migration", () => {
 
     await __waitForSettingsWritesForTests();
 
-    const stored = JSON.parse(await readFile(settingsPath, "utf-8")) as {
+    const stored = __readStoredSettingsForTests() as {
       settingsVersion: number;
       groups: Record<
         string,
@@ -167,43 +171,42 @@ describe("settings migration", () => {
     expect(stored.groups["-2002"]?.topics?.["44"]?.pinnedMessageId).toBe(55);
     expect(stored.groups["-2002"]?.topics?.["44"]?.binding?.sessionId).toBe("ses-topic");
     expect(stored.groups["-2002"]?.topics?.["44"]?.binding?.projectId).toBe("proj-general");
+
+    await expect(readFile(settingsPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("upgrades nested settings without version metadata instead of wiping them", async () => {
-    await writeFile(
-      settingsPath,
-      JSON.stringify(
-        {
-          groups: {
-            "-3003": {
-              general: {
-                project: { id: "proj-general", worktree: "/repo/general" },
-              },
-              topics: {
-                "9": {
-                  session: { id: "ses-topic", title: "Topic", directory: "/repo/general" },
-                },
-              },
+    const original = {
+      groups: {
+        "-3003": {
+          general: {
+            project: { id: "proj-general", worktree: "/repo/general" },
+          },
+          topics: {
+            "9": {
+              session: { id: "ses-topic", title: "Topic", directory: "/repo/general" },
             },
           },
         },
-        null,
-        2,
-      ),
-    );
+      },
+    };
+    await writeFile(settingsPath, JSON.stringify(original, null, 2));
 
     await loadSettings();
 
     expect(getCurrentProject("chat:-3003")?.id).toBe("proj-general");
     expect(getCurrentSession("-3003:9")?.id).toBe("ses-topic");
 
-    const upgraded = JSON.parse(await readFile(settingsPath, "utf-8")) as {
+    const stored = __readStoredSettingsForTests() as {
       settingsVersion: number;
       groups: Record<string, unknown>;
     };
 
-    expect(upgraded.settingsVersion).toBe(2);
-    expect(upgraded.groups["-3003"]).toBeDefined();
+    expect(stored.settingsVersion).toBe(2);
+    expect(stored.groups["-3003"]).toBeDefined();
+    await expect(readFile(`${settingsPath}.migrated`, "utf-8")).resolves.toBe(
+      JSON.stringify(original, null, 2),
+    );
   });
 
   it("does not rewrite unknown future settings versions", async () => {
@@ -231,8 +234,10 @@ describe("settings migration", () => {
 
     expect(getCurrentAgent("chat:-4004")).toBeUndefined();
 
-    const afterLoad = JSON.parse(await readFile(settingsPath, "utf-8")) as typeof original;
-    expect(afterLoad).toEqual(original);
+    await expect(readFile(`${settingsPath}.migrated`, "utf-8")).resolves.toBe(
+      JSON.stringify(original, null, 2),
+    );
+    await expect(readFile(settingsPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects mismatched topic binding keys", () => {

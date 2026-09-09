@@ -152,7 +152,7 @@ Model picker behavior:
 - [x] Voice/audio transcription via Whisper-compatible APIs (OpenAI/Groq/Together and compatible providers)
 - [x] Optional global audio replies with `/tts` via OpenAI-compatible APIs
 - [x] Single-user security model (allowed Telegram user ID)
-- [x] Persistent bot settings (`settings.json`) between restarts
+- [x] Persistent bot settings (SQLite) between restarts
 - [x] Localization structure via dedicated i18n files
 
 ## Current Task List

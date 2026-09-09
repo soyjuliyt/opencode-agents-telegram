@@ -294,11 +294,13 @@ class PinnedMessageManager {
       const context = this.getContext(scopeKey);
 
       if (!error && data && data.length > 0) {
-        context.state.changedFiles = data.map((d) => ({
-          file: d.file,
-          additions: d.additions,
-          deletions: d.deletions,
-        }));
+        context.state.changedFiles = data
+          .filter((d): d is typeof d & { file: string } => Boolean(d.file))
+          .map((d) => ({
+            file: d.file,
+            additions: d.additions,
+            deletions: d.deletions,
+          }));
         await this.updatePinnedMessage(scopeKey);
       }
     } catch (err) {

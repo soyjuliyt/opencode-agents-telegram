@@ -5,7 +5,6 @@ import type {
   ScheduledTaskModel,
   ScheduledTaskTopicBinding,
 } from "../scheduled-task/types.js";
-import path from "node:path";
 import {
   GLOBAL_SCOPE_KEY,
   SCOPE_CONTEXT,
@@ -14,6 +13,14 @@ import {
 } from "../bot/scope.js";
 import { getRuntimePaths } from "../runtime/paths.js";
 import { logger } from "../utils/logger.js";
+import {
+  closeSettingsDb,
+  ensureSettingsDb,
+  getSettingsMigrationLog,
+  logSettingsMigration,
+  readSettingsDocument,
+  writeSettingsDocument,
+} from "./sqlite.js";
 
 export interface ProjectInfo {
   id: string;
@@ -223,20 +230,6 @@ function isLegacySettingsShape(value: unknown): value is LegacySettings {
     "currentModel" in value ||
     "pinnedMessageId" in value ||
     "toolMessagesIntervalSec" in value
-  );
-}
-
-function looksLikeNestedSettingsShape(value: unknown): boolean {
-  if (!isObject(value)) {
-    return false;
-  }
-
-  return (
-    "global" in value ||
-    "dmScopes" in value ||
-    "groups" in value ||
-    "serverProcess" in value ||
-    "sessionDirectoryCache" in value
   );
 }
 
@@ -1119,21 +1112,30 @@ function migrateLegacySettings(legacy: LegacySettings): Settings {
 
 async function readSettingsFile(): Promise<unknown> {
   try {
-    const fs = await import("fs/promises");
+    const fs = await import("node:fs/promises");
     const content = await fs.readFile(getSettingsFilePath(), "utf-8");
     return JSON.parse(content) as unknown;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       logger.error("[SettingsManager] Error reading settings file:", error);
     }
-    return createEmptySettings();
+    return undefined;
+  }
+}
+
+async function renameSettingsFileToMigrated(): Promise<void> {
+  try {
+    const fs = await import("node:fs/promises");
+    await fs.rename(getSettingsFilePath(), `${getSettingsFilePath()}.migrated`);
+  } catch (error) {
+    logger.warn("[SettingsManager] Could not rename settings.json to .migrated:", error);
   }
 }
 
 let settingsWriteQueue: Promise<void> = Promise.resolve();
 let settingsWriteBlockedReason: string | null = null;
 
-function writeSettingsFile(settings: Settings): Promise<void> {
+function persistSettings(settings: Settings): Promise<void> {
   settingsWriteQueue = settingsWriteQueue
     .catch(() => {
       // Keep write queue alive after failed writes.
@@ -1145,12 +1147,9 @@ function writeSettingsFile(settings: Settings): Promise<void> {
       }
 
       try {
-        const fs = await import("fs/promises");
-        const settingsFilePath = getSettingsFilePath();
-        await fs.mkdir(path.dirname(settingsFilePath), { recursive: true });
-        await fs.writeFile(settingsFilePath, JSON.stringify(settings, null, 2));
-      } catch (err) {
-        logger.error("[SettingsManager] Error writing settings file:", err);
+        writeSettingsDocument(settings);
+      } catch (error) {
+        logger.error("[SettingsManager] Error writing settings to sqlite:", error);
       }
     });
 
@@ -1200,7 +1199,7 @@ function updateScopeState<K extends keyof ScopeState>(
 
   pruneEmptySettings(currentSettings, normalizedScopeKey);
   syncIndexes();
-  void writeSettingsFile(currentSettings);
+  void persistSettings(currentSettings);
 }
 
 function updateTopicBindingState(
@@ -1233,7 +1232,7 @@ function updateTopicBindingState(
 
   pruneEmptySettings(currentSettings, targetScopeKey);
   syncIndexes();
-  void writeSettingsFile(currentSettings);
+  void persistSettings(currentSettings);
 }
 
 export function getCurrentProject(scopeKey: string = GLOBAL_SCOPE_KEY): ProjectInfo | undefined {
@@ -1429,7 +1428,7 @@ export function setScheduledTasks(tasks: ScheduledTask[]): Promise<void> {
 
   currentSettings.scheduledTasks =
     tasks.length > 0 ? tasks.map((task) => cloneScheduledTask(task)) : undefined;
-  return writeSettingsFile(currentSettings);
+  return persistSettings(currentSettings);
 }
 
 export function setScheduledTaskTopics(topics: ScheduledTaskTopicBinding[]): Promise<void> {
@@ -1441,7 +1440,7 @@ export function setScheduledTaskTopics(topics: ScheduledTaskTopicBinding[]): Pro
     topics.length > 0
       ? topics.map((binding) => cloneScheduledTaskTopicBinding(binding))
       : undefined;
-  return writeSettingsFile(currentSettings);
+  return persistSettings(currentSettings);
 }
 
 export function setServerProcess(processInfo: ServerProcessInfo): void {
@@ -1450,7 +1449,7 @@ export function setServerProcess(processInfo: ServerProcessInfo): void {
   }
 
   currentSettings.serverProcess = { ...processInfo };
-  void writeSettingsFile(currentSettings);
+  void persistSettings(currentSettings);
 }
 
 export function clearServerProcess(): void {
@@ -1459,7 +1458,7 @@ export function clearServerProcess(): void {
   }
 
   currentSettings.serverProcess = undefined;
-  void writeSettingsFile(currentSettings);
+  void persistSettings(currentSettings);
 }
 
 export function getSessionDirectoryCache(): SessionDirectoryCacheInfo | undefined {
@@ -1484,7 +1483,7 @@ export function setSessionDirectoryCache(cache: SessionDirectoryCacheInfo): Prom
     lastSyncedUpdatedAt: cache.lastSyncedUpdatedAt,
     directories: cache.directories.map((entry) => ({ ...entry })),
   };
-  return writeSettingsFile(currentSettings);
+  return persistSettings(currentSettings);
 }
 
 export function clearSessionDirectoryCache(): void {
@@ -1493,61 +1492,100 @@ export function clearSessionDirectoryCache(): void {
   }
 
   currentSettings.sessionDirectoryCache = undefined;
-  void writeSettingsFile(currentSettings);
+  void persistSettings(currentSettings);
 }
 
 export function __resetSettingsForTests(): void {
+  closeSettingsDb();
   currentSettings = createEmptySettings();
   currentIndexes = createEmptyIndexes();
   settingsWriteQueue = Promise.resolve();
   settingsWriteBlockedReason = null;
 }
 
+export function __readStoredSettingsForTests(): unknown {
+  ensureSettingsDb();
+  return readSettingsDocument();
+}
+
+export function __getSettingsMigrationLogForTests(): Array<{
+  source: string;
+  operation: string;
+  detail: string | null;
+  created_at: number;
+}> {
+  return getSettingsMigrationLog();
+}
+
 export function __waitForSettingsWritesForTests(): Promise<void> {
   return settingsWriteQueue;
 }
 
-export async function loadSettings(): Promise<void> {
-  const loadedSettings = await readSettingsFile();
-  settingsWriteBlockedReason = null;
-
-  if (!isObject(loadedSettings)) {
-    currentSettings = createEmptySettings();
-    syncIndexes();
-    return;
-  }
-
-  if (loadedSettings.settingsVersion === undefined) {
-    if (isLegacySettingsShape(loadedSettings)) {
-      currentSettings = migrateLegacySettings(loadedSettings);
-      syncIndexes();
-      await writeSettingsFile(currentSettings);
+function deriveSettingsFromFile(value: Record<string, unknown>): Settings {
+  if (value.settingsVersion === undefined) {
+    if (isLegacySettingsShape(value)) {
       logger.info("[SettingsManager] Migrated settings.json from v1 to v2");
-      return;
+      return migrateLegacySettings(value);
     }
 
-    currentSettings = looksLikeNestedSettingsShape(loadedSettings)
-      ? sanitizeSettingsV2(loadedSettings)
-      : createEmptySettings();
-    pruneEmptySettings(currentSettings);
-    syncIndexes();
-    await writeSettingsFile(currentSettings);
     logger.info("[SettingsManager] Upgraded nested settings.json to v2 metadata");
-    return;
+    return sanitizeSettingsV2(value);
   }
 
-  if (loadedSettings.settingsVersion !== 2) {
-    logger.warn(
-      `[SettingsManager] Unsupported settingsVersion=${String(loadedSettings.settingsVersion)}; loading known fields without rewriting file`,
+  return sanitizeSettingsV2(value);
+}
+
+export async function loadSettings(): Promise<void> {
+  ensureSettingsDb();
+  settingsWriteBlockedReason = null;
+
+  const storedDocument = readSettingsDocument();
+  if (storedDocument !== undefined) {
+    if (!isObject(storedDocument)) {
+      logger.warn("[SettingsManager] Stored settings document has an invalid shape; reseeding");
+    } else if (storedDocument.settingsVersion !== 2) {
+      logger.warn(
+        `[SettingsManager] Unsupported settingsVersion=${String(storedDocument.settingsVersion)}; loading known fields without rewriting`,
+      );
+      currentSettings = sanitizeSettingsV2(storedDocument);
+      pruneEmptySettings(currentSettings);
+      syncIndexes();
+      settingsWriteBlockedReason = `settingsVersion ${String(storedDocument.settingsVersion)} is read-only`;
+      return;
+    } else {
+      currentSettings = sanitizeSettingsV2(storedDocument);
+      pruneEmptySettings(currentSettings);
+      syncIndexes();
+      logger.debug("[SettingsManager] Loaded settings from sqlite");
+      return;
+    }
+  }
+
+  const fileSettings = await readSettingsFile();
+  if (fileSettings !== undefined) {
+    const loaded = isObject(fileSettings) ? deriveSettingsFromFile(fileSettings) : createEmptySettings();
+    pruneEmptySettings(loaded);
+    writeSettingsDocument(loaded);
+    logSettingsMigration(
+      "settings.json",
+      isObject(fileSettings) && fileSettings.settingsVersion !== undefined && fileSettings.settingsVersion !== 2
+        ? "import-readonly"
+        : "import",
     );
-    currentSettings = sanitizeSettingsV2(loadedSettings);
-    pruneEmptySettings(currentSettings);
+    await renameSettingsFileToMigrated();
+    currentSettings = loaded;
     syncIndexes();
-    settingsWriteBlockedReason = `settingsVersion ${String(loadedSettings.settingsVersion)} is read-only`;
+    if (isObject(fileSettings) && fileSettings.settingsVersion !== undefined && fileSettings.settingsVersion !== 2) {
+      settingsWriteBlockedReason = `settingsVersion ${String(fileSettings.settingsVersion)} is read-only`;
+    }
+    logger.info("[SettingsManager] Migrated settings.json into settings.sqlite");
     return;
   }
 
-  currentSettings = sanitizeSettingsV2(loadedSettings);
-  pruneEmptySettings(currentSettings);
+  const seeded = createEmptySettings();
+  writeSettingsDocument(seeded);
+  logSettingsMigration("seeded", "seed");
+  currentSettings = seeded;
   syncIndexes();
+  logger.debug("[SettingsManager] Seeded empty settings in settings.sqlite");
 }

@@ -1,9 +1,13 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { setRuntimeMode } from "../../src/runtime/mode.js";
-import { loadSettings } from "../../src/settings/manager.js";
+import {
+  __readStoredSettingsForTests,
+  __resetSettingsForTests,
+  loadSettings,
+} from "../../src/settings/manager.js";
 import {
   __resetSessionDirectoryCacheForTests,
   getCachedSessionDirectories,
@@ -67,6 +71,7 @@ describe("session/cache-manager", () => {
   });
 
   afterEach(async () => {
+    __resetSettingsForTests();
     delete process.env.OPENCODE_TELEGRAM_HOME;
     await rm(tempHome, { recursive: true, force: true });
   });
@@ -90,20 +95,19 @@ describe("session/cache-manager", () => {
       { worktree: "D:/repo-a", lastUpdated: 1_700_000_000_100 },
     ]);
 
-    const settingsPath = path.join(tempHome, "settings.json");
-    const settingsFile = JSON.parse(await readFile(settingsPath, "utf-8")) as {
-      sessionDirectoryCache: {
+    const storedSettings = __readStoredSettingsForTests() as {
+      sessionDirectoryCache?: {
         version: number;
         lastSyncedUpdatedAt: number;
         directories: Array<{ worktree: string }>;
       };
     };
-    const cacheFile = settingsFile.sessionDirectoryCache;
+    const cacheFile = storedSettings.sessionDirectoryCache;
 
     expect(cacheFile).toBeDefined();
-    expect(cacheFile.version).toBe(1);
-    expect(cacheFile.lastSyncedUpdatedAt).toBe(1_700_000_000_200);
-    expect(cacheFile.directories.map((entry) => entry.worktree)).toEqual([
+    expect(cacheFile?.version).toBe(1);
+    expect(cacheFile?.lastSyncedUpdatedAt).toBe(1_700_000_000_200);
+    expect(cacheFile?.directories.map((entry) => entry.worktree)).toEqual([
       "D:/repo-b",
       "D:/repo-a",
     ]);

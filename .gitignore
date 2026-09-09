@@ -33,6 +33,9 @@ skills-lock.json
 logs/
 run/
 settings.json
+settings.json.migrated
+settings.sqlite
+settings.sqlite-*
 .tmp/
 
 # Packaging artifacts
