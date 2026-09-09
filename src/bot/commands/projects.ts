@@ -28,6 +28,17 @@ const MAX_INLINE_BUTTON_LABEL_LENGTH = 64;
 const PROJECT_PAGE_CALLBACK_PREFIX = "projects:page:";
 const PROJECT_SELECT_CALLBACK_PREFIX = "project:";
 
+function getProjectCallbackToken(projectId: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mod = 0x10000000000000000n;
+  for (let i = 0; i < projectId.length; i += 1) {
+    hash ^= BigInt(projectId.charCodeAt(i));
+    hash = (hash * prime) % mod;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
 interface ProjectsPaginationRange {
   page: number;
   totalPages: number;
@@ -41,39 +52,17 @@ export interface ProjectLockState {
   projectName?: string;
 }
 
-function getProjectRepoFamilyKey(project: ProjectInfo | null): string | null {
-  if (!project?.id) {
-    return null;
-  }
-
-  const separatorIndex = project.id.indexOf(":");
-  return separatorIndex === -1 ? project.id : project.id.slice(0, separatorIndex);
-}
-
-function belongsToProjectRepoFamily(project: ProjectInfo, familyKey: string): boolean {
-  return project.id === familyKey || project.id.startsWith(`${familyKey}:`);
-}
-
 function getVisibleProjectsForScope(
   ctx: Context,
   projects: ProjectInfo[],
-  scopeKey: string,
+  _scopeKey: string,
 ): ProjectInfo[] {
   const scope = getScopeFromContext(ctx);
   if (scope?.context !== SCOPE_CONTEXT.GROUP_GENERAL) {
     return projects;
   }
 
-  const currentProject = getCurrentProject(scopeKey);
-  const familyKey = getProjectRepoFamilyKey(currentProject ?? null);
-  if (!familyKey) {
-    return projects;
-  }
-
-  const familyProjects = projects.filter((project) =>
-    belongsToProjectRepoFamily(project, familyKey),
-  );
-  return familyProjects.length > 0 ? familyProjects : projects;
+  return projects;
 }
 
 function formatProjectButtonLabel(label: string, isActive: boolean): string {
@@ -177,7 +166,7 @@ function buildProjectsKeyboard(
       (project.id === currentProject.id || project.worktree === currentProject.worktree);
     const label = buildProjectButtonLabel(startIndex + index, project.worktree);
     const labelWithCheck = formatProjectButtonLabel(label, Boolean(isActive));
-    keyboard.text(labelWithCheck, `project:${project.id}`).row();
+    keyboard.text(labelWithCheck, `${PROJECT_SELECT_CALLBACK_PREFIX}${getProjectCallbackToken(project.id)}`).row();
   });
 
   if (totalPages > 1) {
@@ -339,7 +328,7 @@ export async function handleProjectSelect(ctx: Context): Promise<boolean> {
     return true;
   }
 
-  const projectId = callbackQuery.data.replace(PROJECT_SELECT_CALLBACK_PREFIX, "");
+  const projectToken = callbackQuery.data.replace(PROJECT_SELECT_CALLBACK_PREFIX, "");
 
   const isActiveMenu = await ensureActiveInlineMenu(ctx, "project");
   if (!isActiveMenu) {
@@ -348,14 +337,16 @@ export async function handleProjectSelect(ctx: Context): Promise<boolean> {
 
   try {
     const projects = getVisibleProjectsForScope(ctx, await getProjects(), scopeKey);
-    const selectedProject = projects.find((p) => p.id === projectId);
+    const selectedProject = projects.find(
+      (p) => getProjectCallbackToken(p.id) === projectToken,
+    );
 
     if (!selectedProject) {
-      throw new Error(`Project with id ${projectId} not found`);
+      throw new Error(`Project with token ${projectToken} not found`);
     }
 
     logger.info(
-      `[Bot] Project selected: ${selectedProject.name || selectedProject.worktree} (id: ${projectId})`,
+      `[Bot] Project selected: ${selectedProject.name || selectedProject.worktree} (id: ${selectedProject.id})`,
     );
 
     const scopedKeyboard = await switchToProject(

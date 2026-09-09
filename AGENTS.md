@@ -7,6 +7,15 @@ Instructions for AI agents working on this project.
 **opencode-telegram-group-topics-bot** is a Telegram bot that acts as a mobile client for OpenCode.
 This fork is optimized for Telegram forum topics: the General topic is the control lane, while individual topic threads act as scoped session lanes.
 
+### Multi-project behavior (custom fork change)
+
+Unlike upstream, `/projects` in the General topic shows ALL OpenCode projects (not only the current repo "family").
+
+- Scope keys are per-thread (`chatId:threadId`), and each thread stores its own project/session/model/agent state.
+- `/new` in General creates a session topic bound to the currently selected project in that General scope.
+- Since `getVisibleProjectsForScope` no longer filters by project family, you can mix sessions for different repos in one supergroup.
+- Project switching stays locked inside session topics (the lock exists to protect active threads).
+
 Functional requirements, features, and development status are in [PRODUCT.md](./PRODUCT.md).
 This repo is a fork of `grinev/opencode-telegram-bot` with group-topics support added; if you need to review or port upstream changes, read [FORK_SYNC.md](./FORK_SYNC.md).
 
