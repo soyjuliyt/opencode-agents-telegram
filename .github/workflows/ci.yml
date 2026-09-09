@@ -41,3 +41,6 @@ jobs:
 
       - name: Test
         run: npm run test
+
+      - name: Runtime health check
+        run: node scripts/health-check.js

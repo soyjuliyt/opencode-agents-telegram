@@ -110,6 +110,10 @@ jobs:
         if: steps.determine.outputs.should_release == 'true'
         run: npm run test
 
+      - name: Runtime health check
+        if: steps.determine.outputs.should_release == 'true'
+        run: node scripts/health-check.js
+
       - name: Generate release notes
         if: steps.determine.outputs.should_release == 'true'
         id: notes
