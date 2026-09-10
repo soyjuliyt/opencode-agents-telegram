@@ -20,6 +20,11 @@ export interface PermissionRequest {
 export type PermissionReply = "once" | "always" | "reject";
 
 /**
+ * Permission handling mode configured per scope (thread / chat)
+ */
+export type PermissionMode = "ask" | "allow_all" | "deny_all";
+
+/**
  * State for active permission requests
  */
 export interface PermissionState {

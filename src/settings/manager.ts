@@ -1,4 +1,5 @@
 import type { ModelInfo } from "../model/types.js";
+import type { PermissionMode } from "../permission/types.js";
 import type {
   ScheduledTask,
   ScheduledTaskDeliveryTarget,
@@ -79,6 +80,7 @@ export interface ScopeState {
   model?: ModelInfo;
   pinnedMessageId?: number;
   ttsEnabled?: boolean;
+  permissionMode?: PermissionMode;
 }
 
 export interface TopicScopeState extends ScopeState {
@@ -126,6 +128,7 @@ interface SettingsIndexes {
   scopedModels: Record<string, ModelInfo>;
   scopedPinnedMessageIds: Record<string, number>;
   scopedTtsEnabled: Record<string, boolean>;
+  scopedPermissionModes: Record<string, PermissionMode>;
   topicSessionBindings: Record<string, TopicSessionBinding>;
 }
 
@@ -141,6 +144,7 @@ function createEmptyIndexes(): SettingsIndexes {
     scopedModels: {},
     scopedPinnedMessageIds: {},
     scopedTtsEnabled: {},
+    scopedPermissionModes: {},
     topicSessionBindings: {},
   };
 }
@@ -690,6 +694,14 @@ function sanitizeLegacyTopicSessionBindings(
   return Object.fromEntries(entries);
 }
 
+function sanitizeTtsEnabled(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function isPermissionMode(value: unknown): value is PermissionMode {
+  return value === "ask" || value === "allow_all" || value === "deny_all";
+}
+
 function sanitizeScopeState(value: unknown): ScopeState | undefined {
   if (!isObject(value)) {
     return undefined;
@@ -701,7 +713,8 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
   const model = sanitizeModelInfo(value.model);
   const pinnedMessageId =
     typeof value.pinnedMessageId === "number" ? value.pinnedMessageId : undefined;
-  const ttsEnabled = typeof value.ttsEnabled === "boolean" ? value.ttsEnabled : undefined;
+  const ttsEnabled = sanitizeTtsEnabled(value.ttsEnabled);
+  const permissionMode = isPermissionMode(value.permissionMode) ? value.permissionMode : undefined;
 
   if (
     !project &&
@@ -709,7 +722,8 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
     !agent &&
     !model &&
     pinnedMessageId === undefined &&
-    ttsEnabled === undefined
+    ttsEnabled === undefined &&
+    permissionMode === undefined
   ) {
     return undefined;
   }
@@ -721,6 +735,7 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
     model,
     pinnedMessageId,
     ttsEnabled,
+    permissionMode,
   };
 }
 
@@ -880,6 +895,7 @@ function isEmptyScopeState(state: ScopeState | TopicScopeState | undefined): boo
     state.model === undefined &&
     state.pinnedMessageId === undefined &&
     state.ttsEnabled === undefined &&
+    state.permissionMode === undefined &&
     (!("binding" in state) || state.binding === undefined)
   );
 }
@@ -1011,6 +1027,10 @@ function rebuildIndexes(settings: Settings): SettingsIndexes {
 
     if (state.ttsEnabled !== undefined) {
       indexes.scopedTtsEnabled[scopeKey] = state.ttsEnabled;
+    }
+
+    if (state.permissionMode !== undefined) {
+      indexes.scopedPermissionModes[scopeKey] = state.permissionMode;
     }
 
     if ("binding" in state && state.binding) {
@@ -1358,6 +1378,19 @@ export function isTtsEnabled(scopeKey: string = GLOBAL_SCOPE_KEY): boolean {
 
 export function setTtsEnabled(enabled: boolean, scopeKey: string = GLOBAL_SCOPE_KEY): void {
   updateScopeState(scopeKey, "ttsEnabled", enabled);
+}
+
+export function getPermissionMode(scopeKey: string = GLOBAL_SCOPE_KEY): PermissionMode {
+  return (
+    getScopedMap(currentIndexes.scopedPermissionModes, normalizeScopeKey(scopeKey)) ?? "ask"
+  );
+}
+
+export function setPermissionMode(
+  mode: PermissionMode,
+  scopeKey: string = GLOBAL_SCOPE_KEY,
+): void {
+  updateScopeState(scopeKey, "permissionMode", mode);
 }
 
 export function getTopicSessionBindings(): Record<string, TopicSessionBinding> {

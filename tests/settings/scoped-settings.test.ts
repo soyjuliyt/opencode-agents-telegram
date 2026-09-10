@@ -13,6 +13,8 @@ import {
   getScopedPinnedMessageId,
   isTtsEnabled,
   setTtsEnabled,
+  getPermissionMode,
+  setPermissionMode,
 } from "../../src/settings/manager.js";
 
 describe("settings scoped values", () => {
@@ -68,6 +70,22 @@ describe("settings scoped values", () => {
     setTtsEnabled(false);
 
     expect(isTtsEnabled("global")).toBe(false);
+  });
+
+  it("defaults permission mode to ask", () => {
+    expect(getPermissionMode()).toBe("ask");
+    expect(getPermissionMode("chat:999")).toBe("ask");
+  });
+
+  it("stores permission mode per scope", () => {
+    setPermissionMode("allow_all");
+    setPermissionMode("deny_all", "chat:1:10");
+    setPermissionMode("ask", "chat:1:20");
+
+    expect(getPermissionMode()).toBe("allow_all");
+    expect(getPermissionMode("chat:1:10")).toBe("deny_all");
+    expect(getPermissionMode("chat:1:20")).toBe("ask");
+    expect(getPermissionMode("chat:1:30")).toBe("ask");
   });
 
   it("normalizes general-topic aliases to the chat general scope", () => {

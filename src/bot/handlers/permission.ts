@@ -1,7 +1,7 @@
 import { Context, InlineKeyboard } from "grammy";
 import { permissionManager } from "../../permission/manager.js";
 import { opencodeClient } from "../../opencode/client.js";
-import { getCurrentProject } from "../../settings/manager.js";
+import { getCurrentProject, getPermissionMode, setPermissionMode } from "../../settings/manager.js";
 import { getCurrentSession, getSessionById } from "../../session/manager.js";
 import { summaryAggregator } from "../../summary/aggregator.js";
 import { interactionManager } from "../../interaction/manager.js";
@@ -11,7 +11,17 @@ import { PermissionRequest, PermissionReply } from "../../permission/types.js";
 import type { I18nKey } from "../../i18n/en.js";
 import { t } from "../../i18n/index.js";
 import { sendBotText } from "../utils/telegram-text.js";
-import { getScopeFromContext, getScopeKeyFromContext, getThreadSendOptions } from "../scope.js";
+import {
+  getScopeFromContext,
+  getScopeKeyFromContext,
+  getThreadSendOptions,
+} from "../scope.js";
+import {
+  PERMISSION_SET_PREFIX,
+  buildPermissionMenu,
+  formatPermissionMode,
+} from "../commands/permission.js";
+import { clearActiveInlineMenu, ensureActiveInlineMenu } from "./inline-menu.js";
 
 const PERMISSION_CALLBACK = {
   PREFIX: "permission:",
@@ -96,6 +106,125 @@ function getCallbackMessageId(ctx: Context): number | null {
 
   const messageId = (message as { message_id?: number }).message_id;
   return typeof messageId === "number" ? messageId : null;
+}
+
+function getPermissionDisplayName(permission: string): string {
+  const nameKey = PERMISSION_NAME_KEYS[permission];
+  return nameKey ? t(nameKey) : t("common.unknown");
+}
+
+function resolvePermissionReplyDirectory(
+  request: PermissionRequest,
+  scopeKey: string,
+): string | null {
+  const currentProject = getCurrentProject(scopeKey);
+  const currentSession = getCurrentSession(scopeKey);
+  const cachedSession = getSessionById(request.sessionID);
+
+  return (
+    (currentSession?.id === request.sessionID ? currentSession.directory : null) ??
+    cachedSession?.directory ??
+    currentProject?.worktree ??
+    null
+  );
+}
+
+/**
+ * Auto-resolve permission requests when the scope is configured to allow or deny all.
+ * @returns true if the request was handled automatically, false if it still needs manual handling.
+ */
+export async function tryAutoHandlePermission(
+  botApi: Context["api"],
+  chatId: number,
+  threadId: number | null,
+  request: PermissionRequest,
+  scopeKey: string,
+): Promise<boolean> {
+  const mode = getPermissionMode(scopeKey);
+  if (mode === "ask") {
+    return false;
+  }
+
+  const reply: PermissionReply = mode === "allow_all" ? "always" : "reject";
+  const directory = resolvePermissionReplyDirectory(request, scopeKey);
+  if (!directory) {
+    logger.warn(
+      `[PermissionHandler] Cannot auto-handle permission request without directory: sessionID=${request.sessionID}`,
+    );
+    return false;
+  }
+
+  summaryAggregator.stopTypingIndicator(request.sessionID);
+
+  logger.info(
+    `[PermissionHandler] Auto-handling permission request: type=${request.permission}, reply=${reply}, requestID=${request.id}`,
+  );
+
+  const { error } = await opencodeClient.permission.reply({
+    requestID: request.id,
+    directory,
+    reply,
+  });
+
+  if (error) {
+    logger.error("[PermissionHandler] Failed to auto-handle permission reply:", error);
+    return false;
+  }
+
+  const displayName = getPermissionDisplayName(request.permission);
+  const feedback =
+    reply === "always"
+      ? t("permission.auto.allowed", { name: displayName })
+      : t("permission.auto.denied", { name: displayName });
+
+  await botApi.sendMessage(chatId, feedback, getThreadSendOptions(threadId)).catch(() => {});
+
+  return true;
+}
+
+function isPermissionModeSet(value: string): value is "ask" | "allow_all" | "deny_all" {
+  return value === "ask" || value === "allow_all" || value === "deny_all";
+}
+
+export async function handlePermissionSetCallback(ctx: Context): Promise<boolean> {
+  const data = ctx.callbackQuery?.data;
+  if (!data || !data.startsWith(PERMISSION_SET_PREFIX)) {
+    return false;
+  }
+
+  const isActiveMenu = await ensureActiveInlineMenu(ctx, "permission_set");
+  if (!isActiveMenu) {
+    return true;
+  }
+
+  const scopeKey = getScopeKeyFromContext(ctx);
+
+  try {
+    const mode = data.slice(PERMISSION_SET_PREFIX.length);
+    if (!isPermissionModeSet(mode)) {
+      await ctx.answerCallbackQuery({ text: t("permission.set.error"), show_alert: true });
+      return true;
+    }
+
+    await ctx.answerCallbackQuery({
+      text: t("permission.set.changed", { mode: formatPermissionMode(mode) }),
+    });
+
+    logger.info(`[PermissionHandler] Permission mode set to ${mode} for scope=${scopeKey}`);
+
+    setPermissionMode(mode, scopeKey);
+
+    const keyboard = buildPermissionMenu(mode);
+    const text = t("permission.set.title", { mode: formatPermissionMode(mode) });
+    await ctx.editMessageText(text, { reply_markup: keyboard });
+
+    return true;
+  } catch (err) {
+    clearActiveInlineMenu("permission_set_error", scopeKey);
+    logger.error("[PermissionHandler] Error handling permission mode set:", err);
+    await ctx.answerCallbackQuery({ text: t("permission.set.error") }).catch(() => {});
+    return true;
+  }
 }
 
 function clearPermissionInteraction(reason: string, scopeKey: string): void {
@@ -251,15 +380,9 @@ async function handlePermissionReply(
 ): Promise<void> {
   const { request, messageId: callbackMessageId } = resolvedRequest;
   const requestID = request.id;
-  const currentProject = getCurrentProject(scopeKey);
-  const currentSession = getCurrentSession(scopeKey);
-  const cachedSession = getSessionById(request.sessionID);
   const chatId = ctx.chat?.id;
   const threadId = getScopeFromContext(ctx)?.threadId ?? null;
-  const directory =
-    (currentSession?.id === request.sessionID ? currentSession.directory : null) ??
-    cachedSession?.directory ??
-    currentProject?.worktree;
+  const directory = resolvePermissionReplyDirectory(request, scopeKey);
 
   if (!directory || !chatId) {
     permissionManager.clear(scopeKey);
