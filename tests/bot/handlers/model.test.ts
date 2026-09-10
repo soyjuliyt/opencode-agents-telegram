@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context, InlineKeyboard } from "grammy";
 import { buildModelSelectionMenu } from "../../../src/bot/handlers/model.js";
-import { handleModelAllPageCallback } from "../../../src/bot/commands/model.js";
+import { handleModelProvidersCallback } from "../../../src/bot/commands/model.js";
 import type { ModelSelectionLists } from "../../../src/model/types.js";
 import { interactionManager } from "../../../src/interaction/manager.js";
 
@@ -28,7 +28,7 @@ describe("buildModelSelectionMenu", () => {
     mocked.getAllAvailableModelsMock.mockResolvedValue([]);
   });
 
-  it("includes a Models button that opens the all-models list", async () => {
+  it("includes a Providers button that opens the providers list", async () => {
     const modelLists: ModelSelectionLists = {
       favorites: [{ providerID: "opencode", modelID: "big-pickle" }],
       recent: [],
@@ -37,12 +37,12 @@ describe("buildModelSelectionMenu", () => {
     const keyboard = await buildModelSelectionMenu(undefined, modelLists);
     const buttons = getFlatButtons(keyboard);
 
-    const modelsButton = buttons.find((button) => button.callback_data === "modelall:page:0");
-    expect(modelsButton).toBeDefined();
-    expect(modelsButton?.text).toBe("📋 Models");
+    const providersButton = buttons.find((button) => button.callback_data === "modelprov:page:0");
+    expect(providersButton).toBeDefined();
+    expect(providersButton?.text).toBe("🗂 Providers");
   });
 
-  it("adds the Models button when favorites is empty but recent has entries", async () => {
+  it("adds the Providers button when favorites is empty but recent has entries", async () => {
     const modelLists: ModelSelectionLists = {
       favorites: [],
       recent: [{ providerID: "openrouter", modelID: "free" }],
@@ -51,11 +51,11 @@ describe("buildModelSelectionMenu", () => {
     const keyboard = await buildModelSelectionMenu(undefined, modelLists);
     const buttons = getFlatButtons(keyboard);
 
-    expect(buttons.some((button) => button.callback_data === "modelall:page:0")).toBe(true);
+    expect(buttons.some((button) => button.callback_data === "modelprov:page:0")).toBe(true);
   });
 });
 
-describe("handleModelAllPageCallback via Models button", () => {
+describe("handleModelProvidersCallback via Providers button", () => {
   beforeEach(() => {
     interactionManager.clear("test_setup");
     mocked.allModels = [
@@ -66,7 +66,7 @@ describe("handleModelAllPageCallback via Models button", () => {
     mocked.getAllAvailableModelsMock.mockResolvedValue(mocked.allModels);
   });
 
-  it("replaces the favorites menu with the all-models page", async () => {
+  it("replaces the favorites menu with the providers page", async () => {
     interactionManager.start(
       {
         kind: "inline",
@@ -81,14 +81,14 @@ describe("handleModelAllPageCallback via Models button", () => {
       answerCallbackQuery: vi.fn().mockResolvedValue(undefined),
       deleteMessage: vi.fn().mockResolvedValue(undefined),
       editMessageText: vi.fn().mockResolvedValue(undefined),
-      callbackQuery: { data: "modelall:page:0", message: { message_id: 321 } },
+      callbackQuery: { data: "modelprov:page:0", message: { message_id: 321 } },
     } as unknown as Context;
 
-    const handled = await handleModelAllPageCallback(ctx);
+    const handled = await handleModelProvidersCallback(ctx);
 
     expect(handled).toBe(true);
     expect(ctx.editMessageText).toHaveBeenCalledTimes(1);
     const text = (ctx.editMessageText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(text).toContain("All models");
+    expect(text).toContain("Providers");
   });
 });

@@ -26,7 +26,7 @@ import {
   getScopeKeyFromContext,
   getThreadSendOptions,
 } from "../scope.js";
-import { MODEL_ALL_PAGE_PREFIX } from "../commands/model.js";
+import { MODEL_PROVIDERS_PAGE_PREFIX } from "../commands/model.js";
 
 function buildModelSelectionMenuText(modelLists: ModelSelectionLists): string {
   const lines = [t("model.menu.select"), t("model.menu.favorites_title")];
@@ -199,7 +199,7 @@ export async function buildModelSelectionMenu(
   favorites.forEach((model) => addButton(model, "⭐"));
   recent.forEach((model) => addButton(model, "🕘"));
 
-  keyboard.text(t("model.button.all"), `${MODEL_ALL_PAGE_PREFIX}0`).row();
+  keyboard.text(t("model.button.providers"), `${MODEL_PROVIDERS_PAGE_PREFIX}0`).row();
 
   return keyboard;
 }

@@ -2,7 +2,11 @@ import { CommandContext, Context, InlineKeyboard } from "grammy";
 import { getAllAvailableModels, fetchCurrentModel } from "../../model/manager.js";
 import { formatModelForDisplay } from "../../model/types.js";
 import type { FavoriteModel } from "../../model/types.js";
-import { registerModelCallback } from "../../model/callback-registry.js";
+import {
+  registerModelCallback,
+  registerProviderCallback,
+  resolveProviderCallback,
+} from "../../model/callback-registry.js";
 import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { config } from "../../config.js";
@@ -12,44 +16,69 @@ import {
 } from "../handlers/inline-menu.js";
 import { getScopeFromContext, getScopeKeyFromContext, getThreadSendOptions } from "../scope.js";
 
-export const MODEL_ALL_PAGE_PREFIX = "modelall:page:";
+export const MODEL_PROVIDERS_PAGE_PREFIX = "modelprov:page:";
+export const MODEL_PROVIDER_SELECT_PREFIX = "modelprov:sel:";
+export const MODEL_PROVIDER_MODELS_PAGE_PREFIX = "modelprov:pg:";
+export const MODEL_PROVIDERS_BACK_CALLBACK = "modelprov:back";
+
 const MAX_INLINE_BUTTON_LABEL_LENGTH = 64;
 
-function truncateModelLabel(model: FavoriteModel): string {
-  const raw = formatModelForDisplay(model.providerID, model.modelID);
-
-  if (raw.length <= MAX_INLINE_BUTTON_LABEL_LENGTH) {
-    return raw;
+function truncateLabel(label: string): string {
+  if (label.length <= MAX_INLINE_BUTTON_LABEL_LENGTH) {
+    return label;
   }
 
-  return `${raw.slice(0, MAX_INLINE_BUTTON_LABEL_LENGTH - 3)}...`;
+  return `${label.slice(0, MAX_INLINE_BUTTON_LABEL_LENGTH - 3)}...`;
 }
 
-function buildModelPageKeyboard(
-  models: FavoriteModel[],
+function truncateModelLabel(model: FavoriteModel): string {
+  return truncateLabel(formatModelForDisplay(model.providerID, model.modelID));
+}
+
+function groupModelsByProvider(models: FavoriteModel[]): Map<string, FavoriteModel[]> {
+  const grouped = new Map<string, FavoriteModel[]>();
+
+  for (const model of models) {
+    let providerModels = grouped.get(model.providerID);
+    if (!providerModels) {
+      providerModels = [];
+      grouped.set(model.providerID, providerModels);
+    }
+    providerModels.push(model);
+  }
+
+  return grouped;
+}
+
+function buildProvidersKeyboard(
+  grouped: Map<string, FavoriteModel[]>,
   page: number,
   pageSize: number,
 ): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  const totalPages = Math.max(1, Math.ceil(models.length / pageSize));
+  const providers = Array.from(grouped.keys()).sort();
+  const totalPages = Math.max(1, Math.ceil(providers.length / pageSize));
   const normalizedPage = Math.min(Math.max(0, page), totalPages - 1);
   const startIndex = normalizedPage * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, models.length);
+  const endIndex = Math.min(startIndex + pageSize, providers.length);
 
   for (let index = startIndex; index < endIndex; index += 1) {
-    const model = models[index];
+    const providerID = providers[index];
     keyboard
-      .text(truncateModelLabel(model), `model:${registerModelCallback(model.providerID, model.modelID)}`)
+      .text(
+        truncateLabel(providerID),
+        `${MODEL_PROVIDER_SELECT_PREFIX}${registerProviderCallback(providerID)}`,
+      )
       .row();
   }
 
   if (totalPages > 1) {
     if (normalizedPage > 0) {
-      keyboard.text(t("model.button.prev_page"), `${MODEL_ALL_PAGE_PREFIX}${normalizedPage - 1}`);
+      keyboard.text(t("model.button.prev_page"), `${MODEL_PROVIDERS_PAGE_PREFIX}${normalizedPage - 1}`);
     }
 
     if (normalizedPage < totalPages - 1) {
-      keyboard.text(t("model.button.next_page"), `${MODEL_ALL_PAGE_PREFIX}${normalizedPage + 1}`);
+      keyboard.text(t("model.button.next_page"), `${MODEL_PROVIDERS_PAGE_PREFIX}${normalizedPage + 1}`);
     }
 
     keyboard.row();
@@ -58,14 +87,93 @@ function buildModelPageKeyboard(
   return keyboard;
 }
 
-function getCallbackMessageId(ctx: Context): number | null {
-  const message = ctx.callbackQuery?.message;
-  if (!message || !("message_id" in message)) {
-    return null;
+function buildProviderModelsKeyboard(
+  models: FavoriteModel[],
+  providerID: string,
+  page: number,
+  pageSize: number,
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const providerToken = registerProviderCallback(providerID);
+  const providerModels = models.filter((model) => model.providerID === providerID);
+  const totalPages = Math.max(1, Math.ceil(providerModels.length / pageSize));
+  const normalizedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const startIndex = normalizedPage * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, providerModels.length);
+
+  for (let index = startIndex; index < endIndex; index += 1) {
+    const model = providerModels[index];
+    keyboard
+      .text(
+        truncateModelLabel(model),
+        `model:${registerModelCallback(model.providerID, model.modelID)}`,
+      )
+      .row();
   }
 
-  const messageId = (message as { message_id?: number }).message_id;
-  return typeof messageId === "number" ? messageId : null;
+  if (totalPages > 1) {
+    if (normalizedPage > 0) {
+      keyboard.text(
+        t("model.button.prev_page"),
+        `${MODEL_PROVIDER_MODELS_PAGE_PREFIX}${providerToken}:${normalizedPage - 1}`,
+      );
+    }
+
+    if (normalizedPage < totalPages - 1) {
+      keyboard.text(
+        t("model.button.next_page"),
+        `${MODEL_PROVIDER_MODELS_PAGE_PREFIX}${providerToken}:${normalizedPage + 1}`,
+      );
+    }
+
+    keyboard.row();
+  }
+
+  keyboard.text(t("model.button.back"), MODEL_PROVIDERS_BACK_CALLBACK).row();
+
+  return keyboard;
+}
+
+function buildProvidersMenuText(
+  providerCount: number,
+  page: number,
+  totalPages: number,
+  scopeKey: string,
+): string {
+  const currentModel = fetchCurrentModel(scopeKey);
+  const currentLabel = currentModel?.providerID
+    ? `${currentModel.providerID}/${currentModel.modelID}`
+    : t("common.unknown");
+
+  return [
+    t("model.menu.current", { name: currentLabel }),
+    "",
+    t("model.providers.title", { total: providerCount, page: page + 1, pages: totalPages }),
+  ].join("\n");
+}
+
+function buildProviderModelsMenuText(
+  providerID: string,
+  modelCount: number,
+  page: number,
+  totalPages: number,
+  scopeKey: string,
+): string {
+  const currentModel = fetchCurrentModel(scopeKey);
+  const currentLabel = currentModel?.providerID
+    ? `${currentModel.providerID}/${currentModel.modelID}`
+    : t("common.unknown");
+
+  return [
+    t("model.menu.current", { name: currentLabel }),
+    "",
+    t("model.provider.models_title", {
+      provider: truncateLabel(providerID),
+      total: modelCount,
+      page: page + 1,
+      pages: totalPages,
+    }),
+  ].join("\n");
 }
 
 export async function modelCommand(ctx: CommandContext<Context>): Promise<void> {
@@ -79,27 +187,17 @@ export async function modelCommand(ctx: CommandContext<Context>): Promise<void> 
       return;
     }
 
+    const grouped = groupModelsByProvider(models);
     const pageSize = config.bot.commandsListLimit;
-    const totalPages = Math.ceil(models.length / pageSize);
-    const keyboard = buildModelPageKeyboard(models, 0, pageSize);
-    const currentModel = fetchCurrentModel(scopeKey);
-    const currentLabel = currentModel?.providerID
-      ? `${currentModel.providerID}/${currentModel.modelID}`
-      : t("common.unknown");
-
-    const text = [
-      t("model.menu.current", { name: currentLabel }),
-      "",
-      t("model.all.title", { total: models.length, page: 1, pages: totalPages }),
-    ].join("\n");
+    const totalPages = Math.max(1, Math.ceil(grouped.size / pageSize));
 
     await replyWithInlineMenu(ctx, {
       menuKind: "model",
-      text,
-      keyboard,
+      text: buildProvidersMenuText(grouped.size, 0, totalPages, scopeKey),
+      keyboard: buildProvidersKeyboard(grouped, 0, pageSize),
     });
   } catch (err) {
-    logger.error("[Model] Error showing all models:", err);
+    logger.error("[Model] Error showing providers:", err);
     await ctx.reply(
       t("model.menu.error"),
       getThreadSendOptions(getScopeFromContext(ctx)?.threadId ?? null),
@@ -107,9 +205,9 @@ export async function modelCommand(ctx: CommandContext<Context>): Promise<void> 
   }
 }
 
-export async function handleModelAllPageCallback(ctx: Context): Promise<boolean> {
+export async function handleModelProvidersCallback(ctx: Context): Promise<boolean> {
   const data = ctx.callbackQuery?.data;
-  if (!data || !data.startsWith(MODEL_ALL_PAGE_PREFIX)) {
+  if (!data || !data.startsWith("modelprov")) {
     return false;
   }
 
@@ -120,21 +218,7 @@ export async function handleModelAllPageCallback(ctx: Context): Promise<boolean>
     return true;
   }
 
-  const callbackMessageId = getCallbackMessageId(ctx);
-  if (callbackMessageId === null) {
-    await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
-    return true;
-  }
-
   try {
-    const rawPage = data.slice(MODEL_ALL_PAGE_PREFIX.length);
-    const page = Number(rawPage);
-
-    if (!Number.isInteger(page) || page < 0) {
-      await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
-      return true;
-    }
-
     const models = await getAllAvailableModels();
 
     if (models.length === 0) {
@@ -142,32 +226,86 @@ export async function handleModelAllPageCallback(ctx: Context): Promise<boolean>
       return true;
     }
 
+    const grouped = groupModelsByProvider(models);
     const pageSize = config.bot.commandsListLimit;
-    const totalPages = Math.max(1, Math.ceil(models.length / pageSize));
-    const normalizedPage = Math.min(Math.max(0, page), totalPages - 1);
 
-    const keyboard = buildModelPageKeyboard(models, normalizedPage, pageSize);
-    const currentModel = fetchCurrentModel(scopeKey);
-    const currentLabel = currentModel?.providerID
-      ? `${currentModel.providerID}/${currentModel.modelID}`
-      : t("common.unknown");
+    let text: string;
+    let keyboard: InlineKeyboard;
 
-    const text = [
-      t("model.menu.current", { name: currentLabel }),
-      "",
-      t("model.all.title", {
-        total: models.length,
-        page: normalizedPage + 1,
-        pages: totalPages,
-      }),
-    ].join("\n");
+    if (data.startsWith(MODEL_PROVIDER_SELECT_PREFIX)) {
+      const providerToken = data.slice(MODEL_PROVIDER_SELECT_PREFIX.length);
+      const providerID = resolveProviderCallback(providerToken);
+
+      if (!providerID || !grouped.has(providerID)) {
+        await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
+        return true;
+      }
+
+      const providerModels = grouped.get(providerID)!;
+      const totalPages = Math.max(1, Math.ceil(providerModels.length / pageSize));
+      keyboard = buildProviderModelsKeyboard(models, providerID, 0, pageSize);
+      text = buildProviderModelsMenuText(providerID, providerModels.length, 0, totalPages, scopeKey);
+    } else if (data.startsWith(MODEL_PROVIDER_MODELS_PAGE_PREFIX)) {
+      const rest = data.slice(MODEL_PROVIDER_MODELS_PAGE_PREFIX.length);
+      const colonIndex = rest.lastIndexOf(":");
+      const providerToken = colonIndex > 0 ? rest.slice(0, colonIndex) : "";
+      const rawPage = colonIndex > 0 ? rest.slice(colonIndex + 1) : "";
+      const page = Number(rawPage);
+
+      if (
+        !providerToken ||
+        !Number.isInteger(page) ||
+        page < 0
+      ) {
+        await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
+        return true;
+      }
+
+      const providerID = resolveProviderCallback(providerToken);
+      const providerModels = providerID ? grouped.get(providerID) : undefined;
+
+      if (!providerID || !providerModels) {
+        await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
+        return true;
+      }
+
+      const totalPages = Math.max(1, Math.ceil(providerModels.length / pageSize));
+      const normalizedPage = Math.min(Math.max(0, page), totalPages - 1);
+      keyboard = buildProviderModelsKeyboard(models, providerID, normalizedPage, pageSize);
+      text = buildProviderModelsMenuText(
+        providerID,
+        providerModels.length,
+        normalizedPage,
+        totalPages,
+        scopeKey,
+      );
+    } else if (data.startsWith(MODEL_PROVIDERS_PAGE_PREFIX)) {
+      const rawPage = data.slice(MODEL_PROVIDERS_PAGE_PREFIX.length);
+      const page = Number(rawPage);
+
+      if (!Number.isInteger(page) || page < 0) {
+        await ctx.answerCallbackQuery({ text: t("callback.processing_error"), show_alert: true });
+        return true;
+      }
+
+      const totalPages = Math.max(1, Math.ceil(grouped.size / pageSize));
+      const normalizedPage = Math.min(Math.max(0, page), totalPages - 1);
+      keyboard = buildProvidersKeyboard(grouped, normalizedPage, pageSize);
+      text = buildProvidersMenuText(grouped.size, normalizedPage, totalPages, scopeKey);
+    } else if (data === MODEL_PROVIDERS_BACK_CALLBACK) {
+      const totalPages = Math.max(1, Math.ceil(grouped.size / pageSize));
+      keyboard = buildProvidersKeyboard(grouped, 0, pageSize);
+      text = buildProvidersMenuText(grouped.size, 0, totalPages, scopeKey);
+    } else {
+      return false;
+    }
 
     await ctx.editMessageText(text, { reply_markup: keyboard });
     await ctx.answerCallbackQuery();
 
     return true;
   } catch (err) {
-    logger.error("[Model] Error handling model page callback:", err);
+    logger.error("[Model] Error handling providers callback:", err);
     await ctx.answerCallbackQuery({ text: t("callback.processing_error") }).catch(() => {});
     return true;
   }

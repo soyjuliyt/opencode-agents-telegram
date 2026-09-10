@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Context } from "grammy";
 import {
-  handleModelAllPageCallback,
+  handleModelProvidersCallback,
   modelCommand,
 } from "../../../src/bot/commands/model.js";
 import { interactionManager } from "../../../src/interaction/manager.js";
@@ -18,6 +18,10 @@ vi.mock("../../../src/model/manager.js", () => ({
   fetchCurrentModel: mocked.fetchCurrentModelMock,
 }));
 
+const MOCK_MENU_MESSAGE_ID = 321;
+
+type FlatButton = { text: string; callback_data?: string };
+
 function createContext(messageId: number): Context {
   return {
     chat: { id: 777, type: "supergroup" },
@@ -29,6 +33,33 @@ function createContext(messageId: number): Context {
       deleteMessage: vi.fn().mockResolvedValue(true),
     },
   } as unknown as Context;
+}
+
+function getReplyButtons(ctx: Context): FlatButton[] {
+  const replyArgs = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0];
+  const markup = replyArgs[1] as { reply_markup: { inline_keyboard: unknown[][] } };
+  return markup.reply_markup.inline_keyboard.flat() as FlatButton[];
+}
+
+function getEditedButtons(ctx: Context): FlatButton[] {
+  const editArgs = (ctx.editMessageText as ReturnType<typeof vi.fn>).mock.calls[0];
+  const markup = editArgs[1] as { reply_markup: { inline_keyboard: unknown[][] } };
+  return markup.reply_markup.inline_keyboard.flat() as FlatButton[];
+}
+
+function getEditedText(ctx: Context): string {
+  return (ctx.editMessageText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+}
+
+function startActiveModelMenu(): void {
+  interactionManager.start(
+    {
+      kind: "inline",
+      expectedInput: "callback",
+      metadata: { menuKind: "model", messageId: MOCK_MENU_MESSAGE_ID },
+    },
+    "chat:777",
+  );
 }
 
 describe("bot/commands/model", () => {
@@ -44,7 +75,7 @@ describe("bot/commands/model", () => {
     mocked.fetchCurrentModelMock.mockReturnValue(mocked.currentModel);
   });
 
-  it("shows all models and starts inline menu interaction", async () => {
+  it("shows the providers list and starts inline menu interaction", async () => {
     const ctx = createContext(123);
     await modelCommand({ ...ctx, match: "model" } as never);
 
@@ -53,18 +84,17 @@ describe("bot/commands/model", () => {
 
     const replyArgs = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0];
     const text = replyArgs[0] as string;
-    const markup = replyArgs[1] as { reply_markup: { inline_keyboard: unknown[][] } };
-
     expect(text).toContain("openrouter/free");
+    expect(text).toContain("Providers");
 
-    const flatButtons = markup.reply_markup.inline_keyboard.flat();
-    const modelButtons = flatButtons.map((button) => (button as { text: string }).text);
-    expect(modelButtons).toContain("openrouter / free");
-    expect(modelButtons).toContain("auto / best-free");
+    const buttons = getReplyButtons(ctx);
+    const texts = buttons.map((button) => button.text);
+    expect(texts).toContain("openrouter");
+    expect(texts).toContain("auto");
+    expect(texts).toContain("opencode");
 
-    for (const button of flatButtons as Array<{ text: string; callback_data?: string }>) {
-      if (button.callback_data?.startsWith("model:")) {
-        expect(button.callback_data).toMatch(/^model:mp:[a-z0-9]+$/);
+    for (const button of buttons) {
+      if (button.callback_data?.startsWith("modelprov:sel:")) {
         expect(button.callback_data.length).toBeLessThanOrEqual(64);
       }
     }
@@ -74,26 +104,22 @@ describe("bot/commands/model", () => {
     expect(state?.metadata.menuKind).toBe("model");
   });
 
-  it("paginates when models exceed page size", async () => {
+  it("paginates the providers list when it exceeds the page size", async () => {
     mocked.allModels = Array.from({ length: 25 }, (_, index) => ({
-      providerID: "provider",
-      modelID: `model-${index}`,
+      providerID: `provider-${index}`,
+      modelID: "model-a",
     }));
     mocked.getAllAvailableModelsMock.mockResolvedValue(mocked.allModels);
 
     const ctx = createContext(1);
     await modelCommand({ ...ctx, match: "model" } as never);
 
-    const replyArgs = (ctx.reply as ReturnType<typeof vi.fn>).mock.calls[0];
-    const markup = replyArgs[1] as { reply_markup: { inline_keyboard: unknown[][] } };
-    const flatButtons = markup.reply_markup.inline_keyboard.flat();
-    const texts = flatButtons.map((button) => (button as { text: string }).text);
-
+    const texts = getReplyButtons(ctx).map((button) => button.text);
     expect(texts).toContain("Next ➡️");
     expect(texts).not.toContain("Prev");
   });
 
-  it("replies with empty message when no models available", async () => {
+  it("replies with empty message when no models are available", async () => {
     mocked.getAllAvailableModelsMock.mockResolvedValue([]);
 
     const ctx = createContext(5);
@@ -105,34 +131,108 @@ describe("bot/commands/model", () => {
     expect(interactionManager.getSnapshot()).toBeNull();
   });
 
-  it("edits message on page callback", async () => {
+  it("shows the selected provider's models", async () => {
+    startActiveModelMenu();
+    const ctx = createContext(MOCK_MENU_MESSAGE_ID);
+    await modelCommand({ ...ctx, match: "model" } as never);
+
+    const providersButton = getReplyButtons(ctx).find(
+      (button) => button.callback_data?.startsWith("modelprov:sel:"),
+    );
+    expect(providersButton).toBeDefined();
+
+    const selectCtx = {
+      ...createContext(MOCK_MENU_MESSAGE_ID),
+      callbackQuery: {
+        data: providersButton?.callback_data,
+        message: { message_id: MOCK_MENU_MESSAGE_ID },
+      },
+    } as unknown as Context;
+
+    const handled = await handleModelProvidersCallback(selectCtx);
+
+    expect(handled).toBe(true);
+    expect(selectCtx.editMessageText).toHaveBeenCalledTimes(1);
+    expect(getEditedText(selectCtx)).toContain("models");
+
+    const modelButtons = getEditedButtons(selectCtx).filter(
+      (button) => button.callback_data?.startsWith("model:mp:"),
+    );
+    expect(modelButtons.length).toBeGreaterThan(0);
+
+    const backButton = getEditedButtons(selectCtx).find(
+      (button) => button.callback_data === "modelprov:back",
+    );
+    expect(backButton).toBeDefined();
+  });
+
+  it("edits the message when paginating the providers list", async () => {
     mocked.allModels = Array.from({ length: 25 }, (_, index) => ({
-      providerID: "provider",
+      providerID: `provider-${index}`,
+      modelID: "model-a",
+    }));
+    mocked.getAllAvailableModelsMock.mockResolvedValue(mocked.allModels);
+
+    startActiveModelMenu();
+    const ctx = {
+      ...createContext(MOCK_MENU_MESSAGE_ID),
+      callbackQuery: {
+        data: "modelprov:page:1",
+        message: { message_id: MOCK_MENU_MESSAGE_ID },
+      },
+    } as unknown as Context;
+
+    const handled = await handleModelProvidersCallback(ctx);
+
+    expect(handled).toBe(true);
+    expect(ctx.editMessageText).toHaveBeenCalledTimes(1);
+    expect(getEditedText(ctx)).toContain("Page 2 of");
+    expect(ctx.answerCallbackQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("paginates the models of a selected provider", async () => {
+    mocked.allModels = Array.from({ length: 25 }, (_, index) => ({
+      providerID: "openrouter",
       modelID: `model-${index}`,
     }));
     mocked.getAllAvailableModelsMock.mockResolvedValue(mocked.allModels);
 
-    const scopeKey = "chat:777";
-    interactionManager.start(
-      {
-        kind: "inline",
-        expectedInput: "callback",
-        metadata: { menuKind: "model", messageId: 321 },
-      },
-      scopeKey,
-    );
+    startActiveModelMenu();
+    const ctx = createContext(MOCK_MENU_MESSAGE_ID);
+    await modelCommand({ ...ctx, match: "model" } as never);
 
-    const ctx = {
-      ...createContext(321),
-      callbackQuery: { data: "modelall:page:1", message: { message_id: 321 } },
+    const providersButton = getReplyButtons(ctx).find(
+      (button) => button.callback_data?.startsWith("modelprov:sel:"),
+    );
+    expect(providersButton).toBeDefined();
+
+    const selectCtx = {
+      ...createContext(MOCK_MENU_MESSAGE_ID),
+      callbackQuery: {
+        data: providersButton?.callback_data,
+        message: { message_id: MOCK_MENU_MESSAGE_ID },
+      },
+    } as unknown as Context;
+    await handleModelProvidersCallback(selectCtx);
+
+    const nextButton = getEditedButtons(selectCtx).find(
+      (button) => button.callback_data?.startsWith("modelprov:pg:"),
+    );
+    expect(nextButton).toBeDefined();
+    expect(selectCtx.editMessageText).toHaveBeenCalledTimes(1);
+
+    const pageCtx = {
+      ...createContext(MOCK_MENU_MESSAGE_ID),
+      callbackQuery: {
+        data: nextButton?.callback_data,
+        message: { message_id: MOCK_MENU_MESSAGE_ID },
+      },
     } as unknown as Context;
 
-    const handled = await handleModelAllPageCallback(ctx);
+    const handled = await handleModelProvidersCallback(pageCtx);
 
     expect(handled).toBe(true);
-    expect(ctx.editMessageText).toHaveBeenCalledTimes(1);
-    const text = (ctx.editMessageText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(text).toContain("Page 2 of");
+    expect(getEditedText(pageCtx)).toContain("Page 2 of 3");
   });
 
   it("returns false for unrelated callbacks", async () => {
@@ -141,7 +241,17 @@ describe("bot/commands/model", () => {
       callbackQuery: { data: "model:openrouter:free", message: { message_id: 1 } },
     } as unknown as Context;
 
-    const handled = await handleModelAllPageCallback(ctx);
+    const handled = await handleModelProvidersCallback(ctx);
+    expect(handled).toBe(false);
+  });
+
+  it("returns false for non-modelprov callbacks", async () => {
+    const ctx = {
+      ...createContext(1),
+      callbackQuery: { data: "session:select:abc", message: { message_id: 1 } },
+    } as unknown as Context;
+
+    const handled = await handleModelProvidersCallback(ctx);
     expect(handled).toBe(false);
   });
 });

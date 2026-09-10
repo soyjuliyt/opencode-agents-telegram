@@ -317,8 +317,10 @@ export const ru: I18nDictionary = {
   "model.menu.favorites_hint":
     "ℹ️ Добавляйте модели в избранное через OpenCode CLI, чтобы они были вверху списка.",
   "model.menu.error": "🔴 Не удалось получить список моделей",
-  "model.all.title": "📋 Все модели ({total}):\nСтраница {page} из {pages}",
-  "model.button.all": "📋 Все модели",
+  "model.providers.title": "🗂 Провайдеры ({total}):\nСтраница {page} из {pages}",
+  "model.provider.models_title": "Модели {provider} ({total}):\nСтраница {page} из {pages}",
+  "model.button.providers": "🗂 Провайдеры",
+  "model.button.back": "◀️ Назад",
   "model.button.prev_page": "⬅️ Назад",
   "model.button.next_page": "Вперёд ➡️",
 

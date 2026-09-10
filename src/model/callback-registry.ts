@@ -35,7 +35,29 @@ export function resolveModelCallback(callbackData: string): ModelInfo | null {
   return { providerID: entry.providerID, modelID: entry.modelID, variant: "default" };
 }
 
+const PROVIDER_TOKEN_PREFIX = "pp:";
+const providerEntries = new Map<string, string>();
+
+export function registerProviderCallback(providerID: string): string {
+  const token = `${PROVIDER_TOKEN_PREFIX}${(nextTokenId += 1).toString(36)}`;
+  providerEntries.set(token, providerID);
+
+  if (providerEntries.size > MAX_ENTRIES) {
+    const oldestKey = providerEntries.keys().next().value;
+    if (oldestKey !== undefined) {
+      providerEntries.delete(oldestKey);
+    }
+  }
+
+  return token;
+}
+
+export function resolveProviderCallback(token: string): string | null {
+  return providerEntries.get(token) ?? null;
+}
+
 export function __resetModelCallbackRegistryForTests(): void {
   nextTokenId = 0;
   entries.clear();
+  providerEntries.clear();
 }

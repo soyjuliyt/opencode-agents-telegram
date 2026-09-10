@@ -354,8 +354,10 @@ export const en = {
   "model.menu.favorites_hint":
     "ℹ️ Add models to favorites in OpenCode CLI to keep them at the top.",
   "model.menu.error": "🔴 Failed to get models list",
-  "model.all.title": "📋 All models ({total}):\nPage {page} of {pages}",
-  "model.button.all": "📋 Models",
+  "model.providers.title": "🗂 Providers ({total}):\nPage {page} of {pages}",
+  "model.provider.models_title": "{provider} models ({total}):\nPage {page} of {pages}",
+  "model.button.providers": "🗂 Providers",
+  "model.button.back": "◀️ Back",
   "model.button.prev_page": "⬅️ Prev",
   "model.button.next_page": "Next ➡️",
 

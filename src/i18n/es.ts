@@ -326,8 +326,10 @@ export const es: I18nDictionary = {
   "model.menu.favorites_hint":
     "ℹ️ Agrega modelos a favoritos en OpenCode CLI para mantenerlos arriba de la lista.",
   "model.menu.error": "🔴 No se pudo obtener la lista de modelos",
-  "model.all.title": "📋 Todos los modelos ({total}):\nPágina {page} de {pages}",
-  "model.button.all": "📋 Modelos",
+  "model.providers.title": "🗂 Proveedores ({total}):\nPágina {page} de {pages}",
+  "model.provider.models_title": "Modelos de {provider} ({total}):\nPágina {page} de {pages}",
+  "model.button.providers": "🗂 Proveedores",
+  "model.button.back": "◀️ Volver",
   "model.button.prev_page": "⬅️ Anterior",
   "model.button.next_page": "Siguiente ➡️",
 

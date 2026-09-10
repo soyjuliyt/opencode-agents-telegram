@@ -36,7 +36,7 @@ import {
   handleSkillsCallback,
   skillsCommand,
 } from "./commands/skills.js";
-import { modelCommand, handleModelAllPageCallback } from "./commands/model.js";
+import { modelCommand, handleModelProvidersCallback } from "./commands/model.js";
 import { permissionCommand } from "./commands/permission.js";
 import { ttsCommand } from "./commands/tts.js";
 import {
@@ -1398,7 +1398,7 @@ export function createBot(): Bot<Context> {
       const handledPermissionSet = await handlePermissionSetCallback(ctx);
       const handledAgent = await handleAgentSelect(ctx);
       const handledModel = await handleModelSelect(ctx);
-      const handledModelAllPage = await handleModelAllPageCallback(ctx);
+      const handledModelAllPage = await handleModelProvidersCallback(ctx);
       const handledVariant = await handleVariantSelect(ctx);
       const handledCompactConfirm = await handleCompactConfirm(ctx);
       const handledRenameCancel = await handleRenameCancel(ctx);
