@@ -2,85 +2,141 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
+[![Tests](https://img.shields.io/badge/tests-521%20passing-brightgreen)]()
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)]()
 
-Languages: English (`en`), Deutsch (`de`), Espanol (`es`), Francais (`fr`), Russkiy (`ru`), [Jian ti Zhong wen (`zh-CN` 中文说明)](./README.zh-CN.md)
+**Languages:** English (`en`), Deutsch (`de`), Español (`es`), Français (`fr`), Русский (`ru`), [简体中文 (`zh-CN`)](./README.zh-CN.md)
 
-A Telegram bot for [OpenCode](https://opencode.ai) that turns one Telegram supergroup into a multi-session mobile workspace.
+> **One Telegram supergroup. Every project. Every session. All in parallel — with zero collisions.**
 
-This project is a fork of the original single-chat bot: [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot) by Ruslan Grinev.
+A Telegram bot for [OpenCode](https://opencode.ai) that turns a single supergroup into a **mission control** for your whole machine. Spawn one topic per project, run them all at the same time, and never worry about contexts bleeding into each other.
 
-- Use the upstream project if you want the simpler single-chat workflow.
-- Use this fork if you want one **General** control topic plus dedicated forum topics for parallel OpenCode sessions.
+Fork of [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot), rebuilt around **Telegram forum topics**, **per-thread state**, and **multi-project concurrency**.
 
-No open ports, no exposed web UI. The bot talks only to your local OpenCode server and the Telegram Bot API.
+---
 
-You can run many session topics in parallel inside one group, and many groups in parallel across different projects.
+## The Power-Up 💪
 
-Platforms: macOS, Windows, Linux
+This isn't "one chat attached to one repo". It's a full control surface for parallel development:
 
-Fork sync notes: [`FORK_SYNC.md`](./FORK_SYNC.md)
+| Capability | What it means for you |
+|---|---|
+| 🧵 **Topic = isolated session** | Each topic owns its own OpenCode session. No shared context, no interference. |
+| 🗂 **Every project, one group** | `/projects` lists **all** repositories on the machine — not just one "family". |
+| ⚡ **True parallelism** | Topic A works on backend, Topic B on frontend, Topic C on infra — simultaneously. |
+| 🚦 **Zero collisions** | Interactive flows (menus, permissions, questions) are guarded **per scope** (`chatId:threadId`). Two topics never fight over the same input. |
+| 💾 **SQLite persistence** | Projects, sessions, models, agents, pinned messages survive reboots, updates, crashes. |
+| 🎛 **Fine-grained per-topic control** | Model, agent, variant, and context limit are stored per topic — change one without touching the rest. |
+| 🔓 **Auto-permissions** | Tell a thread to "allow all" and the bot silently handles every prompt — or "deny all" for read-only spectators. |
+| 🧠 **Smart model picker** | Favorites first, then browse by **provider**, then per-provider models — paginated, never a wall of text. |
 
-<p align="center">
-  <img src="assets/screencast.gif" width="45%" alt="OpenCode Telegram Group Topics Bot screencast" />
-</p>
+---
 
-## At a Glance
+## Multi-Project Without Collisions
 
-- One Telegram group usually maps to one repo / project workspace.
-- The **General** topic is the control lane for `/projects`, `/sessions`, `/new`, and status checks.
-- Each new OpenCode session gets its own forum topic.
-- Each topic keeps its own session, model, agent, and pinned status state.
-- Optional TTS replies can be toggled globally with `/tts` and persist across restarts.
-- Subagent child-session work is summarized back into the parent topic as live status cards.
-- Multiple topics can run at the same time, and multiple groups can be active at the same time.
-- DMs are for light control/status usage, not the main multi-session workflow.
+The design handles concurrency at three layers so nothing ever clashes:
+
+```
+📱 One Telegram Supergroup (Topics enabled) — many threads, many sessions, one machine
+```
+
+**1. Scope-isolated state.** Every thread is its own scope key `chatId:threadId`. It stores its own selected project, session, model, agent, variant, and context limit in SQLite. Switching a project in the General topic never leaks into a session topic, and vice versa.
+
+**2. One lane per session.** Each session topic binds to exactly one OpenCode session. SSE events from that session are routed back to **its own topic** — subagent cards, tool calls, final responses stay where they belong.
+
+**3. Guarded interactions.** Only one blocking interaction (inline menu, permission popup, question, rename) can be active **per scope**. Thread A can be mid-menu while Thread B answers a permission — they run independently. The "busy session" queue is also per-session, so a long run in one project never blocks another project's topic.
+
+> Run 5 supergroups against the same machine if you want. Each group = a different team, focus, or set of permissions.
+
+---
+
+## Model Management, Rethought 🧠
+
+Picking a model used to mean scrolling a giant flat list. Now it's a clean browse flow:
+
+```
+1. Bottom keyboard → Model button
+2. ⭐ Favorites + 🕘 Recent (one tap to switch)
+3. 🗂 Providers → a paginated list of providers
+4. Model list for that provider → paginated, tap to select, done
+```
+
+- Favorites/recent are read from OpenCode's own state, deduplicated, and validated against the catalog.
+- The current model is always highlighted with a ✅ and remembered **per topic**.
+- `/model` from any thread opens the same providers-first browser.
+- No wall of text: both providers and models paginate automatically (`COMMANDS_LIST_LIMIT`).
+
+---
+
+## Permission Automation 🔓
+
+New in this fork — `/permission` gives every thread its own permission policy:
+
+| Mode | Behavior |
+|---|---|
+| ❓ **Ask each time** (default) | The classic inline prompt: Allow / Always / Reject |
+| 🔓 **Allow all automatically** | Every Bash/Edit/Write/catalog request is auto-approved instantly |
+| ⛔ **Deny all automatically** | Everything is auto-rejected — read-only mode |
+
+Mode changes apply **per thread** (the scope key again), persist in SQLite, and the menu closes as soon as you pick one. No confirmation-popup fatigue when you trust a long-running task; full manual control when you don't.
+
+---
+
+## Why a Database Matters (SQLite)
+
+Not in-memory state that vanishes on restart — **better-sqlite3** under the hood:
+
+| What's persisted | Why it matters |
+|------------------|----------------|
+| Selected project per scope (General + each topic) | Reopen the group → you're exactly where you left off |
+| Session ↔ topic bindings | Topics never lose their session, even across bot/server restarts |
+| Model/agent/variant per topic | Your coding preferences stick where you put them |
+| Permission mode per scope | Trust settings survive everything |
+| Pinned message IDs | Status messages update in place, no spam |
+| `/tts` toggle, service message visibility | UI preferences persist |
+| Scheduled tasks & topic mappings | Cron jobs run on time, results land in the right topic |
+| Migration from legacy `settings.json` | Zero-friction upgrades |
+
+**Result:** stop the bot, update code, restart — every topic resumes exactly as it was.
+
+---
 
 ## Quick Start
 
-### 1. Prerequisites
+### Prerequisites
+- Node.js 20+
+- [OpenCode](https://opencode.ai) installed (`opencode serve` works)
+- Telegram bot token from [@BotFather](https://t.me/BotFather)
+- Your numeric Telegram user ID from [@userinfobot](https://t.me/userinfobot)
 
-- Install **Node.js 20+**
-- Install **OpenCode** from [opencode.ai](https://opencode.ai) or [GitHub](https://github.com/sst/opencode)
-- Create a Telegram bot with [@BotFather](https://t.me/BotFather)
-- Get your Telegram numeric user ID from [@userinfobot](https://t.me/userinfobot)
+### 1. Create the Supergroup
+1. New **Supergroup** in Telegram
+2. Enable **Topics** (Settings → Topics)
+3. Add bot, make it **Admin** with **Manage Topics** permission
+4. In @BotFather: `/setprivacy` → **Disable**
+5. Keep **General** topic — it's your control center
 
-### 2. Create and Prepare the Telegram Group
-
-1. Create a new Telegram **supergroup** for one OpenCode project/repository.
-2. Add your bot to that group.
-3. Make the bot an admin with permission to **Manage Topics**.
-4. Enable **Topics** in the group settings.
-5. In [@BotFather](https://t.me/BotFather), run `/setprivacy` for the bot and choose **Disable**.
-6. Keep the default **General** topic - that is the control lane.
-
-### 3. Start OpenCode
-
-Run OpenCode on the machine where the bot will live:
-
+### 2. Start OpenCode
 ```bash
 opencode serve
+# Default: http://localhost:4096
 ```
 
-Default API URL: `http://localhost:4096`
+### 3. Run the Bot
 
-### 4. Install the Bot
-
-#### Option A: `npx`
-
+**Option A: NPX (zero install)**
 ```bash
 npx opencode-telegram-group-topics-bot
 ```
 
-#### Option B: Global install
-
+**Option B: Global install**
 ```bash
 npm install -g opencode-telegram-group-topics-bot
 opencode-telegram-group-topics-bot config
 opencode-telegram-group-topics-bot start
 ```
 
-#### Option C: Run from source
-
+**Option C: From source**
 ```bash
 git clone https://github.com/shanekunz/opencode-telegram-group-topics-bot.git
 cd opencode-telegram-group-topics-bot
@@ -90,180 +146,236 @@ node dist/cli.js config --mode sources
 npm run dev
 ```
 
-`dist/cli.js` is the compiled CLI entrypoint produced by `npm run build`.
+### 4. Setup Wizard
+The CLI walks you through language, bot token, allowed user ID, and optional OpenCode server auth.
 
-### 5. Complete the Setup Wizard
+### 5. Verify
+1. DM the bot → `/start` → confirm reply
+2. In group **General** → `/start` → `/status` (OpenCode should show healthy)
+3. `/projects` → pick a repo
+4. `/new` → creates a session topic
+5. Enter the topic → send a prompt → watch it work
 
-The wizard asks for:
+---
 
-- interface language
-- Telegram bot token
-- allowed Telegram user ID
-- OpenCode API URL
-- optional OpenCode server username/password
+## Daily Workflow (Mobile-First)
 
-### 6. First-Time Verification
+```
+🌅 Morning
+├── Open Telegram group
+├── General: /status → confirm server alive
+├── General: /projects → switch to "backend-api"
+├── General: /new → "Add rate limiting to auth"
+└── Work in the new topic from phone or desktop
 
-1. Open a DM with your bot and run `/start`.
-2. Confirm the bot replies.
-3. Open your Telegram group and run `/start` in **General**.
-4. Run `/status` and confirm the bot can reach OpenCode.
-5. Run `/projects` in **General** and pick the repo for this group.
-6. Run `/new` in **General** to create a session topic.
-7. Open the new topic and send a prompt.
+🌙 Evening
+├── General: /new → "frontend-dashboard" → "Refactor chart component"
+├── General: /new → "infra-terraform" → "Plan new RDS instance"
+├── Topic: /permission → 🔓 Allow all automatically
+└── All three topics running in parallel while you're away
+```
 
-If that works, your group workspace is ready.
+**No laptop required.** OpenCode runs on your machine. You drive it from Telegram.
 
-## Daily Workflow
+---
 
-1. Start OpenCode with `opencode serve`
-2. Start the bot
-3. Open the Telegram group and go to **General**
-4. Use `/projects` to confirm the selected repo
-5. Use `/new` to create a new session topic
-6. Work inside the topic thread
-7. Use `/sessions` in **General** to revisit older session lanes
+## Commands Reference
 
-## Parallel Workloads and Telegram Rate Limits
+| Command | Scope | Purpose |
+|---------|-------|---------|
+| `/status` | Any | Global health: server, project, session, model, context |
+| `/new` | General | Create session topic bound to current project |
+| `/abort` | Session topic | Stop current task (ESC equivalent) |
+| `/sessions` | General | Browse/switch recent sessions across ALL projects |
+| `/projects` | General | List & switch ALL OpenCode projects on machine |
+| `/model` | Any | Browse model catalog: favorites → providers → models (paginated) |
+| `/permission` | Any | Per-thread policy: ask / allow all / deny all |
+| `/tts` | General | Toggle global audio replies (persists in SQLite) |
+| `/rename` | Session topic | Rename current session |
+| `/commands` | Session topic | Browse/run custom OpenCode commands |
+| `/task` | General | Create scheduled task for current project |
+| `/tasklist` | General | List/delete scheduled tasks |
+| `/opencode_start` | General | Start OpenCode server remotely |
+| `/opencode_stop` | General | Stop OpenCode server remotely |
+| `/help` | Any | Show commands |
 
-- This fork is designed for parallel work: many topic threads in one group, and many groups across projects.
-- Telegram enforces message rate limits, especially when many topics are receiving updates at once.
-- The bot handles those limits gracefully and slows or staggers Telegram updates when needed.
-- Your OpenCode sessions continue running even if Telegram updates become less frequent.
-- In heavy parallel usage, expect less real-time chatter per topic, but not lost OpenCode work.
+**Text messages** in session topics = prompts (when no blocking interaction).
+**Voice/audio** = transcribed via a Whisper-compatible API (if configured).
+**Files (images, PDFs, code files)** = uploaded to OpenCode automatically.
 
-## Commands
+---
 
-| Command           | Description                                             |
-| ----------------- | ------------------------------------------------------- |
-| `/status`         | Server health, current project, session, and model info |
-| `/new`            | Create a new session topic                              |
-| `/abort`          | Abort the current task                                  |
-| `/sessions`       | Browse and switch between recent sessions               |
-| `/projects`       | Switch between OpenCode projects                        |
-| `/tts`            | Toggle audio replies globally                           |
-| `/rename`         | Rename the current session                              |
-| `/commands`       | Browse and run custom commands                          |
-| `/task`           | Create a scheduled task for the current project         |
-| `/tasklist`       | List and delete scheduled tasks for the current project |
-| `/opencode_start` | Start the OpenCode server remotely                      |
-| `/opencode_stop`  | Stop the OpenCode server remotely                       |
-| `/help`           | Show available commands                                 |
+## Configuration Highlights
 
-Any normal text message in a session topic is treated as a prompt when no blocking interaction is active.
+### Config Locations
+| Mode | Path |
+|------|------|
+| Source (dev) | Repo root `.env` |
+| Installed (global) | Platform app-data dir |
+| Override | `OPENCODE_TELEGRAM_HOME` env var |
 
-## How This Fork Differs From Upstream
-
-| Topic          | Upstream                    | This fork                   |
-| -------------- | --------------------------- | --------------------------- |
-| Main UX        | One chat                    | One group with forum topics |
-| Session layout | Switch sessions in one lane | One topic per session lane  |
-| Best for       | Simplicity                  | Parallel mobile workflows   |
-| Complexity     | Lower                       | Higher                      |
-
-If you want the simpler path, use the upstream project.
-
-## Configuration
-
-### Config Location
-
-- Source mode stores config in the repository root.
-- Installed mode stores config in the platform app-data directory.
-- `OPENCODE_TELEGRAM_HOME` overrides both and forces a custom config directory.
-
-Installed-mode config paths:
-
-- macOS: `~/Library/Application Support/opencode-telegram-group-topics-bot/.env`
-- Windows: `%APPDATA%\opencode-telegram-group-topics-bot\.env`
-- Linux: `~/.config/opencode-telegram-group-topics-bot/.env`
-
-### Environment Variables
-
-| Variable                           | Description                                                                          | Required | Default                  |
-| ---------------------------------- | ------------------------------------------------------------------------------------ | :------: | ------------------------ |
-| `TELEGRAM_BOT_TOKEN`               | Bot token from @BotFather                                                            |   Yes    | -                        |
-| `TELEGRAM_ALLOWED_USER_ID`         | Your numeric Telegram user ID                                                        |   Yes    | -                        |
-| `TELEGRAM_PROXY_URL`               | Proxy URL for Telegram API (SOCKS5/HTTP)                                             |    No    | -                        |
-| `OPENCODE_API_URL`                 | OpenCode server URL                                                                  |    No    | `http://localhost:4096`  |
-| `OPENCODE_SERVER_USERNAME`         | Server auth username                                                                 |    No    | `opencode`               |
-| `OPENCODE_SERVER_PASSWORD`         | Server auth password                                                                 |    No    | -                        |
-| `OPENCODE_MODEL_PROVIDER`          | Default model provider                                                               |   Yes    | `opencode`               |
-| `OPENCODE_MODEL_ID`                | Default model ID                                                                     |   Yes    | `big-pickle`             |
-| `BOT_LOCALE`                       | Bot UI language (`en`, `de`, `es`, `fr`, `ru`, `zh`)                                 |    No    | `en`                     |
-| `SESSIONS_LIST_LIMIT`              | Sessions per page in `/sessions`                                                     |    No    | `10`                     |
-| `PROJECTS_LIST_LIMIT`              | Projects per page in `/projects`                                                     |    No    | `10`                     |
-| `COMMANDS_LIST_LIMIT`              | Commands per page in `/commands`                                                     |    No    | `10`                     |
-| `SCHEDULED_TASK_POLL_INTERVAL_SEC` | Scheduled task poll interval in seconds                                              |    No    | `30`                     |
-| `SERVICE_MESSAGES_INTERVAL_SEC`    | Service messages interval; keep `>=2` to avoid Telegram rate limits, `0` = immediate |    No    | `5`                      |
-| `HIDE_THINKING_MESSAGES`           | Hide `Thinking...` service messages                                                  |    No    | `false`                  |
-| `HIDE_TOOL_CALL_MESSAGES`          | Hide tool-call service messages                                                      |    No    | `false`                  |
-| `MESSAGE_FORMAT_MODE`              | Assistant reply formatting mode: `markdown` or `raw`                                 |    No    | `markdown`               |
-| `RESPONSE_STREAM_THROTTLE_MS`      | Delay between streamed assistant updates in ms                                       |    No    | `1000`                   |
-| `BASH_TOOL_DISPLAY_MAX_LENGTH`     | Maximum displayed length for `bash` tool commands in Telegram summaries              |    No    | `128`                    |
-| `CODE_FILE_MAX_SIZE_KB`            | Max file size (KB) to send as a document                                             |    No    | `100`                    |
-| `STT_API_URL`                      | Whisper-compatible API base URL                                                      |    No    | -                        |
-| `STT_API_KEY`                      | API key for your STT provider                                                        |    No    | -                        |
-| `STT_MODEL`                        | STT model name passed to `/audio/transcriptions`                                     |    No    | `whisper-large-v3-turbo` |
-| `STT_LANGUAGE`                     | Optional language hint                                                               |    No    | -                        |
-| `TTS_API_URL`                      | TTS API base URL                                                                     |    No    | -                        |
-| `TTS_API_KEY`                      | TTS API key                                                                          |    No    | -                        |
-| `TTS_MODEL`                        | TTS model name passed to `/audio/speech`                                             |    No    | `gpt-4o-mini-tts`        |
-| `TTS_VOICE`                        | OpenAI-compatible TTS voice name                                                     |    No    | `alloy`                  |
-| `LOG_LEVEL`                        | Log level (`debug`, `info`, `warn`, `error`)                                         |    No    | `info`                   |
-
-Keep your `.env` private. It contains your bot token.
-
-### Optional: Voice and Audio Transcription
-
-If `STT_API_URL` and `STT_API_KEY` are set, the bot can transcribe Telegram voice/audio messages before sending them to OpenCode.
-
-If TTS credentials are configured, you can toggle spoken replies globally with `/tts`. The preference is stored in `settings.json` and persists across restarts.
-
-TTS configuration example:
-
+### Key Environment Variables
 ```env
+# Required
+TELEGRAM_BOT_TOKEN=xxx
+TELEGRAM_ALLOWED_USER_ID=123456789
+OPENCODE_MODEL_PROVIDER=opencode
+OPENCODE_MODEL_ID=big-pickle
+
+# Optional but powerful
+OPENCODE_API_URL=http://localhost:4096
+OPENCODE_SERVER_USERNAME=opencode
+OPENCODE_SERVER_PASSWORD=secret
+
+# Database & persistence (SQLite, auto-managed — no config needed)
+
+# Multi-project behavior
+PROJECTS_LIST_LIMIT=20          # Projects per page
+SESSIONS_LIST_LIMIT=20          # Sessions per page
+COMMANDS_LIST_LIMIT=10          # Rows per model provider/commands page
+
+# Telegram rate-limit friendly
+SERVICE_MESSAGES_INTERVAL_SEC=5 # Batch updates (>=2 recommended)
+RESPONSE_STREAM_THROTTLE_MS=1000
+
+# Optional: Voice → Text (STT)
+STT_API_URL=https://api.groq.com/openai/v1
+STT_API_KEY=gsk_xxx
+STT_MODEL=whisper-large-v3-turbo
+
+# Optional: Text → Voice (TTS) — toggle with /tts
 TTS_API_URL=https://api.openai.com/v1
-TTS_API_KEY=your-tts-api-key
+TTS_API_KEY=sk-xxx
 TTS_MODEL=gpt-4o-mini-tts
 TTS_VOICE=alloy
 ```
 
-Whisper-compatible examples:
+Full list in the [Configuration Reference](#configuration-reference-full) below.
 
-- OpenAI: `https://api.openai.com/v1`
-- Groq: `https://api.groq.com/openai/v1`
-- Together: `https://api.together.xyz/v1`
+---
 
-### Model Picker Notes
+## Architecture Snapshot
 
-- Favorites are shown before recent models
-- The current model is marked with `✅`
-- The default model from `OPENCODE_MODEL_PROVIDER` + `OPENCODE_MODEL_ID` is always included
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Telegram Supergroup                       │
+│  General (control)  │  Topic A  │  Topic B  │  Scheduled    │
+└─────────┬───────────┴─────┬─────┴─────┬─────┴──────┬────────┘
+          │                 │           │            │
+          ▼                 ▼           ▼            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Bot Process                             │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
+│  │ Grammy Bot  │  │ State Mgmt   │  │ SQLite Persistence │  │
+│  │ (commands,  │  │ (per scope:  │  │ (sessions, topics, │  │
+│  │  middleware)│  │  chatId:     │  │  models, agents,   │  │
+│  └──────┬──────┘  │  threadId)   │  │  permissions, ...) │  │
+│         │         └──────┬───────┘  └────────┬───────────┘  │
+│         │                │                    │              │
+│         ▼                ▼                    ▼              │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              OpenCode Client (SDK)                   │   │
+│  │  SSE Events → Aggregator → Formatter → Telegram     │   │
+│  └─────────────────────────┬────────────────────────────┘   │
+└────────────────────────────┼────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  OpenCode Server (local)                     │
+│  Projects: backend-api  │  frontend-dashboard  │  infra...   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-To add favorites, open the OpenCode TUI and press `Cmd+F` / `Ctrl+F` on a model.
+**Zero public exposure.** Bot ↔ OpenCode (localhost) + Bot ↔ Telegram Bot API only.
 
-## Features
+---
 
-- Thread-scoped OpenCode sessions inside Telegram forum topics
-- Scheduled tasks with a dedicated per-project scheduled topic in forum groups
-- Pinned live status messages per topic
-- Live assistant response streaming and streamed tool-call updates
-- Model, agent, variant, and context controls from the keyboard
-- Custom OpenCode command execution
-- Interactive permission and question handling
-- Voice/audio transcription support
-- File attachments for images, PDFs, and text files
-- Strict single-user access control
+## Features at a Glance
 
-## Security
+- 🧵 **Thread-scoped sessions** — one topic = one OpenCode session, fully isolated
+- 🗄️ **SQLite persistence** — state survives restarts, updates, crashes
+- 🌐 **Multi-project by default** — `/projects` shows everything on the machine
+- ⚡ **Parallel execution** — multiple topics, multiple groups, all simultaneous
+- 🚦 **Collision-proof** — per-scope interactions, per-session queues, no cross-thread bleed
+- 🧠 **Modern model browser** — favorites → providers → per-provider models, paginated
+- 🔓 **Auto-permissions** — `/permission` with ask / allow-all / deny-all per thread
+- 📌 **Pinned live status** — session title, project, model, context %, changed files, cost
+- 🎯 **Subagent cards** — child sessions stream back as live status cards in parent topic
+- 🎤 **Voice → Text (STT)** — Whisper-compatible (OpenAI, Groq, Together, etc.)
+- 🔊 **Text → Voice (TTS)** — global toggle via `/tts`, OpenAI-compatible
+- 📎 **File uploads** — images, PDFs, code files sent to OpenCode automatically
+- 🔐 **Single-user security** — `TELEGRAM_ALLOWED_USER_ID` enforced everywhere
+- 🌍 **7 languages** — EN, DE, ES, FR, RU, ZH, with typed i18n keys
+- ⚙️ **Model/agent/variant/context** — controlled from persistent bottom keyboard
+- ⏰ **Scheduled tasks** — cron-style prompts per project, results in dedicated topics
+- 🛑 **Interaction guard** — one active flow at a time per scope
+- 📊 **Rate-limit aware** — batches Telegram updates, never loses OpenCode work
 
-Only the Telegram user whose ID matches `TELEGRAM_ALLOWED_USER_ID` can use the bot.
+---
 
-Since the bot runs locally and connects to your local OpenCode server, there is no exposed public service beyond Telegram itself.
+## How This Differs From Upstream
+
+| Aspect | Upstream (grinev) | This Fork |
+|--------|-------------------|-----------|
+| UX | Single chat | **Forum topics = parallel lanes** |
+| Project scope | One repo per bot | **ALL projects in one group** |
+| Session model | Switch in-place | **One topic per session** |
+| Persistence | JSON file | **SQLite (better-sqlite3)** |
+| Multi-group | Not designed for it | **Multiple groups supported** |
+| Permissions | Always interactive | **Per-scope auto allow/deny** |
+| Model picker | Flat list | **Favorites → providers → models** |
+| Scheduled tasks | ❌ | ✅ Per-project, dedicated topics |
+| Target | Simplicity | **Mobile parallel workflows** |
+
+If you want simple single-chat → use upstream.  
+If you want **one group to rule them all** → this fork.
+
+---
+
+## Configuration Reference (Full)
+
+<details>
+<summary><b>Click to expand all environment variables</b></summary>
+
+| Variable | Description | Required | Default |
+|----------|-------------|:--------:|---------|
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | Yes | — |
+| `TELEGRAM_ALLOWED_USER_ID` | Your numeric Telegram user ID | Yes | — |
+| `TELEGRAM_PROXY_URL` | Proxy for Telegram API (SOCKS5/HTTP) | No | — |
+| `OPENCODE_API_URL` | OpenCode server URL | No | `http://localhost:4096` |
+| `OPENCODE_SERVER_USERNAME` | Server auth username | No | `opencode` |
+| `OPENCODE_SERVER_PASSWORD` | Server auth password | No | — |
+| `OPENCODE_MODEL_PROVIDER` | Default model provider | Yes | `opencode` |
+| `OPENCODE_MODEL_ID` | Default model ID | Yes | `big-pickle` |
+| `BOT_LOCALE` | UI language (`en`, `de`, `es`, `fr`, `ru`, `zh`) | No | `en` |
+| `SESSIONS_LIST_LIMIT` | Sessions per page in `/sessions` | No | `10` |
+| `PROJECTS_LIST_LIMIT` | Projects per page in `/projects` | No | `10` |
+| `COMMANDS_LIST_LIMIT` | Rows per page (commands, model providers/models) | No | `10` |
+| `SCHEDULED_TASK_POLL_INTERVAL_SEC` | Scheduled task poll interval | No | `30` |
+| `SERVICE_MESSAGES_INTERVAL_SEC` | Batch service messages (>=2 for rate limits, 0 = immediate) | No | `5` |
+| `HIDE_THINKING_MESSAGES` | Hide "Thinking..." messages | No | `false` |
+| `HIDE_TOOL_CALL_MESSAGES` | Hide tool-call messages | No | `false` |
+| `HIDE_TOOL_FILE_MESSAGES` | Hide tool-file messages | No | `false` |
+| `MESSAGE_FORMAT_MODE` | `markdown` or `raw` | No | `markdown` |
+| `RESPONSE_STREAM_THROTTLE_MS` | Delay between streamed updates (ms) | No | `1000` |
+| `BASH_TOOL_DISPLAY_MAX_LENGTH` | Max length for bash commands in summaries | No | `128` |
+| `CODE_FILE_MAX_SIZE_KB` | Max file size (KB) to send as document | No | `100` |
+| `STT_API_URL` | Whisper-compatible API base URL | No | — |
+| `STT_API_KEY` | STT API key | No | — |
+| `STT_MODEL` | STT model name | No | `whisper-large-v3-turbo` |
+| `STT_LANGUAGE` | Optional language hint | No | — |
+| `STT_NOTE_PROMPT` | Optional prompt for STT | No | — |
+| `TTS_API_URL` | TTS API base URL | No | — |
+| `TTS_API_KEY` | TTS API key | No | — |
+| `TTS_MODEL` | TTS model name | No | `gpt-4o-mini-tts` |
+| `TTS_VOICE` | TTS voice name | No | `alloy` |
+| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | No | `info` |
+
+</details>
+
+---
 
 ## Development
-
-### Run from source
 
 ```bash
 git clone https://github.com/shanekunz/opencode-telegram-group-topics-bot.git
@@ -275,57 +387,48 @@ npm run dev
 ```
 
 ### Scripts
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Build + start |
+| `npm run build` | Compile TypeScript |
+| `npm start` | Run compiled |
+| `npm run lint` | ESLint (zero warnings) |
+| `npm run format` | Prettier |
+| `npm test` | Vitest (521 tests) |
+| `npm run test:coverage` | Coverage report |
 
-| Script                          | Description             |
-| ------------------------------- | ----------------------- |
-| `npm run dev`                   | Build and start         |
-| `npm run build`                 | Compile TypeScript      |
-| `npm start`                     | Run compiled code       |
-| `npm run release:notes:preview` | Preview release notes   |
-| `npm run lint`                  | Run ESLint              |
-| `npm run format`                | Run Prettier            |
-| `npm test`                      | Run tests               |
-| `npm run test:coverage`         | Run tests with coverage |
-
-No watcher is used because the bot maintains persistent SSE and polling connections.
+---
 
 ## Troubleshooting
 
-**Bot does not respond**
+| Symptom | Fix |
+|---------|-----|
+| Bot silent | Check `TELEGRAM_ALLOWED_USER_ID` matches your ID; disable privacy mode in BotFather |
+| OpenCode unreachable | Run `opencode serve`; verify `OPENCODE_API_URL` |
+| Can't create topics | Group must be supergroup + Topics enabled + bot admin with Manage Topics |
+| Messages queue with "busy session" | A previous run is stuck server-side — `POST /session/<id>/abort` on the OpenCode API clears it |
+| No models in picker | Add favorites in OpenCode TUI (`Ctrl+F`); verify provider/model env vars |
+| Linux exec permission | `chmod +x $(which opencode-telegram-group-topics-bot)` |
 
-- Confirm `TELEGRAM_ALLOWED_USER_ID` matches your real Telegram user ID
-- Confirm the bot token is correct
-- Make sure you disabled privacy mode in BotFather for group usage
+---
 
-**OpenCode server is unavailable**
+## Security Model
 
-- Make sure `opencode serve` is running
-- Confirm `OPENCODE_API_URL` points to the correct address
+- **Single-user:** Only `TELEGRAM_ALLOWED_USER_ID` can interact
+- **Per-scope permissions:** `/permission` gate per thread — allow, ask, or deny automatically
+- **Local-only:** Bot ↔ OpenCode on localhost; no public ports
+- **Telegram only:** All external communication via Bot API (HTTPS)
+- **No secrets in logs:** Structured logging, configurable levels
 
-**Cannot create new session topics**
-
-- Confirm the group is a supergroup with Topics enabled
-- Confirm the bot is an admin with **Manage Topics** permission
-- Run `/new` from **General**, not inside an existing session topic
-
-**No models appear in the picker**
-
-- Add favorites in the OpenCode TUI
-- Confirm `OPENCODE_MODEL_PROVIDER` and `OPENCODE_MODEL_ID` are valid for your setup
-
-**Linux permission issues**
-
-- Check the CLI binary is executable: `chmod +x $(which opencode-telegram-group-topics-bot)`
-- Check the config directory is writable: `~/.config/opencode-telegram-group-topics-bot/`
+---
 
 ## Contributing
 
-Please follow [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md).  
+Fork issues here; upstream discussion at [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot).
 
-## Community
-
-Open issues in this repository for this fork. For upstream discussion, see [grinev/opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot).
+---
 
 ## License
 
-[MIT](LICENSE) • Original project © Ruslan Grinev • Fork changes © Shane Kunz
+[MIT](LICENSE) • Original © Ruslan Grinev • Fork changes © Shane Kunz
