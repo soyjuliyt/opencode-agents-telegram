@@ -4,21 +4,15 @@ import path from "node:path";
 
 function getDefaultTestHome(): string {
   const workerId = process.env.VITEST_WORKER_ID || "0";
-  const preferredPath = path.join(process.cwd(), ".tmp", "test-home", `${process.pid}-${workerId}`);
+  const testHome = path.join(
+    os.tmpdir(),
+    "opencode-telegram-group-topics-bot",
+    "test-home",
+    `${process.pid}-${workerId}`,
+  );
 
-  try {
-    fs.mkdirSync(preferredPath, { recursive: true });
-    return preferredPath;
-  } catch {
-    const fallbackPath = path.join(
-      os.tmpdir(),
-      "opencode-telegram-group-topics-bot",
-      "test-home",
-      `${process.pid}-${workerId}`,
-    );
-    fs.mkdirSync(fallbackPath, { recursive: true });
-    return fallbackPath;
-  }
+  fs.mkdirSync(testHome, { recursive: true });
+  return testHome;
 }
 
 const TEST_ENV_DEFAULTS: Record<string, string> = {

@@ -36,7 +36,7 @@ settings.json
 settings.json.migrated
 settings.sqlite
 settings.sqlite-*
-.tmp/
+%HOME_TMP%/
 
 # Packaging artifacts
 *.tgz
