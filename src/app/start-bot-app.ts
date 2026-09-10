@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import { cleanupBotRuntime, createBot } from "../bot/index.js";
 import { config } from "../config.js";
 import { reconcileStoredModelSelection } from "../model/manager.js";
-import { loadSettings } from "../settings/manager.js";
+import { getLocalePreference, loadSettings } from "../settings/manager.js";
+import { setRuntimeLocale } from "../i18n/index.js";
 import { processManager } from "../process/manager.js";
 import { warmupSessionDirectoryCache } from "../session/cache-manager.js";
 import { createScheduledTaskRuntime } from "../scheduled-task/runtime.js";
@@ -40,6 +41,12 @@ export async function startBotApp(): Promise<void> {
   logger.debug(`[Runtime] Application start mode: ${mode}`);
 
   await loadSettings();
+
+  const localePreference = getLocalePreference();
+  if (localePreference) {
+    setRuntimeLocale(localePreference);
+  }
+
   await processManager.initialize();
   await reconcileStoredModelSelection();
   await warmupSessionDirectoryCache();

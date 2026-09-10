@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-521%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-526%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)]()
 
 **Languages:** English (`en`), Deutsch (`de`), Español (`es`), Français (`fr`), Русский (`ru`), [简体中文 (`zh-CN`)](./README.zh-CN.md)
@@ -190,6 +190,7 @@ The CLI walks you through language, bot token, allowed user ID, and optional Ope
 | `/projects` | General | List & switch ALL OpenCode projects on machine |
 | `/model` | Any | Browse model catalog: favorites → providers → models (paginated) |
 | `/permission` | Any | Per-thread policy: ask / allow all / deny all |
+| `/language` | Any | Switch bot language instantly (EN · DE · ES · FR · RU · ZH) |
 | `/tts` | General | Toggle global audio replies (persists in SQLite) |
 | `/rename` | Session topic | Rename current session |
 | `/commands` | Session topic | Browse/run custom OpenCode commands |
@@ -305,7 +306,7 @@ Full list in the [Configuration Reference](#configuration-reference-full) below.
 - 🔊 **Text → Voice (TTS)** — global toggle via `/tts`, OpenAI-compatible
 - 📎 **File uploads** — images, PDFs, code files sent to OpenCode automatically
 - 🔐 **Single-user security** — `TELEGRAM_ALLOWED_USER_ID` enforced everywhere
-- 🌍 **7 languages** — EN, DE, ES, FR, RU, ZH, with typed i18n keys
+- 🌍 **7 languages** — EN, DE, ES, FR, RU, ZH, switchable live via `/language`
 - ⚙️ **Model/agent/variant/context** — controlled from persistent bottom keyboard
 - ⏰ **Scheduled tasks** — cron-style prompts per project, results in dedicated topics
 - 🛑 **Interaction guard** — one active flow at a time per scope
@@ -394,7 +395,7 @@ npm run dev
 | `npm start` | Run compiled |
 | `npm run lint` | ESLint (zero warnings) |
 | `npm run format` | Prettier |
-| `npm test` | Vitest (521 tests) |
+| `npm test` | Vitest (526 tests) |
 | `npm run test:coverage` | Coverage report |
 
 ---

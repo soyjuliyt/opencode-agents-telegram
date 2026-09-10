@@ -1,5 +1,7 @@
 import type { ModelInfo } from "../model/types.js";
 import type { PermissionMode } from "../permission/types.js";
+import type { Locale } from "../i18n/index.js";
+import { isSupportedLocale } from "../i18n/index.js";
 import type {
   ScheduledTask,
   ScheduledTaskDeliveryTarget,
@@ -81,6 +83,7 @@ export interface ScopeState {
   pinnedMessageId?: number;
   ttsEnabled?: boolean;
   permissionMode?: PermissionMode;
+  locale?: Locale;
 }
 
 export interface TopicScopeState extends ScopeState {
@@ -129,6 +132,7 @@ interface SettingsIndexes {
   scopedPinnedMessageIds: Record<string, number>;
   scopedTtsEnabled: Record<string, boolean>;
   scopedPermissionModes: Record<string, PermissionMode>;
+  scopedLocales: Record<string, Locale>;
   topicSessionBindings: Record<string, TopicSessionBinding>;
 }
 
@@ -145,6 +149,7 @@ function createEmptyIndexes(): SettingsIndexes {
     scopedPinnedMessageIds: {},
     scopedTtsEnabled: {},
     scopedPermissionModes: {},
+    scopedLocales: {},
     topicSessionBindings: {},
   };
 }
@@ -715,6 +720,10 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
     typeof value.pinnedMessageId === "number" ? value.pinnedMessageId : undefined;
   const ttsEnabled = sanitizeTtsEnabled(value.ttsEnabled);
   const permissionMode = isPermissionMode(value.permissionMode) ? value.permissionMode : undefined;
+  const locale =
+    typeof value.locale === "string" && isSupportedLocale(value.locale)
+      ? (value.locale as Locale)
+      : undefined;
 
   if (
     !project &&
@@ -723,7 +732,8 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
     !model &&
     pinnedMessageId === undefined &&
     ttsEnabled === undefined &&
-    permissionMode === undefined
+    permissionMode === undefined &&
+    locale === undefined
   ) {
     return undefined;
   }
@@ -736,6 +746,7 @@ function sanitizeScopeState(value: unknown): ScopeState | undefined {
     pinnedMessageId,
     ttsEnabled,
     permissionMode,
+    locale,
   };
 }
 
@@ -896,6 +907,7 @@ function isEmptyScopeState(state: ScopeState | TopicScopeState | undefined): boo
     state.pinnedMessageId === undefined &&
     state.ttsEnabled === undefined &&
     state.permissionMode === undefined &&
+    state.locale === undefined &&
     (!("binding" in state) || state.binding === undefined)
   );
 }
@@ -1031,6 +1043,10 @@ function rebuildIndexes(settings: Settings): SettingsIndexes {
 
     if (state.permissionMode !== undefined) {
       indexes.scopedPermissionModes[scopeKey] = state.permissionMode;
+    }
+
+    if (state.locale !== undefined) {
+      indexes.scopedLocales[scopeKey] = state.locale;
     }
 
     if ("binding" in state && state.binding) {
@@ -1391,6 +1407,18 @@ export function setPermissionMode(
   scopeKey: string = GLOBAL_SCOPE_KEY,
 ): void {
   updateScopeState(scopeKey, "permissionMode", mode);
+}
+
+export function getLocalePreference(scopeKey: string = GLOBAL_SCOPE_KEY): Locale | undefined {
+  return getScopedMap(currentIndexes.scopedLocales, normalizeScopeKey(scopeKey));
+}
+
+export function setLocalePreference(locale: Locale, scopeKey: string = GLOBAL_SCOPE_KEY): void {
+  updateScopeState(scopeKey, "locale", locale);
+}
+
+export function clearLocalePreference(scopeKey: string = GLOBAL_SCOPE_KEY): void {
+  updateScopeState(scopeKey, "locale", undefined);
 }
 
 export function getTopicSessionBindings(): Record<string, TopicSessionBinding> {

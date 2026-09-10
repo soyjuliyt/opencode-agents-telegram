@@ -18,6 +18,7 @@ const INLINE_MENU_KINDS = [
   "tasklist",
   "open",
   "permission_set",
+  "language",
 ] as const;
 
 export type InlineMenuKind = (typeof INLINE_MENU_KINDS)[number];

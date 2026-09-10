@@ -52,6 +52,7 @@ describe("bot/commands/help", () => {
       "start",
       "status",
       "permission",
+      "language",
       "opencode_start",
       "opencode_stop",
       "help",

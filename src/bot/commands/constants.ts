@@ -16,6 +16,7 @@ export const BOT_COMMAND = {
   SKILLS: "skills",
   MODEL: "model",
   PERMISSION: "permission",
+  LANGUAGE: "language",
   OPENCODE_START: "opencode_start",
   OPENCODE_STOP: "opencode_stop",
 } as const;
@@ -27,6 +28,7 @@ export const DM_ALLOWED_COMMANDS: readonly BotCommandName[] = [
   BOT_COMMAND.HELP,
   BOT_COMMAND.STATUS,
   BOT_COMMAND.PERMISSION,
+  BOT_COMMAND.LANGUAGE,
   BOT_COMMAND.OPENCODE_START,
   BOT_COMMAND.OPENCODE_STOP,
 ];
