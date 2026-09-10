@@ -166,6 +166,31 @@ describe("bot/commands/model", () => {
     expect(backButton).toBeDefined();
   });
 
+  it("adds a cancel button to navigation pages so the menu can always be closed", async () => {
+    startActiveModelMenu();
+    const ctx = createContext(MOCK_MENU_MESSAGE_ID);
+    await modelCommand({ ...ctx, match: "model" } as never);
+
+    const providersButton = getReplyButtons(ctx).find(
+      (button) => button.callback_data?.startsWith("modelprov:sel:"),
+    );
+    expect(providersButton).toBeDefined();
+
+    const selectCtx = {
+      ...createContext(MOCK_MENU_MESSAGE_ID),
+      callbackQuery: {
+        data: providersButton?.callback_data,
+        message: { message_id: MOCK_MENU_MESSAGE_ID },
+      },
+    } as unknown as Context;
+    await handleModelProvidersCallback(selectCtx);
+
+    const cancelButton = getEditedButtons(selectCtx).find(
+      (button) => button.callback_data === "inline:cancel:model",
+    );
+    expect(cancelButton).toBeDefined();
+  });
+
   it("edits the message when paginating the providers list", async () => {
     mocked.allModels = Array.from({ length: 25 }, (_, index) => ({
       providerID: `provider-${index}`,

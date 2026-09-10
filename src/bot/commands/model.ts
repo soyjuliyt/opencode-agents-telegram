@@ -11,6 +11,7 @@ import { logger } from "../../utils/logger.js";
 import { t } from "../../i18n/index.js";
 import { config } from "../../config.js";
 import {
+  appendInlineMenuCancelButton,
   ensureActiveInlineMenu,
   replyWithInlineMenu,
 } from "../handlers/inline-menu.js";
@@ -300,7 +301,9 @@ export async function handleModelProvidersCallback(ctx: Context): Promise<boolea
       return false;
     }
 
-    await ctx.editMessageText(text, { reply_markup: keyboard });
+    await ctx.editMessageText(text, {
+      reply_markup: appendInlineMenuCancelButton(keyboard, "model"),
+    });
     await ctx.answerCallbackQuery();
 
     return true;
