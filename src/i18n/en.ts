@@ -353,6 +353,10 @@ export const en = {
   "model.menu.favorites_hint":
     "ℹ️ Add models to favorites in OpenCode CLI to keep them at the top.",
   "model.menu.error": "🔴 Failed to get models list",
+  "model.all.title": "📋 All models ({total}):\nPage {page} of {pages}",
+  "model.button.all": "📋 Models",
+  "model.button.prev_page": "⬅️ Prev",
+  "model.button.next_page": "Next ➡️",
 
   "variant.model_not_selected_callback": "Error: model is not selected",
   "variant.changed_callback": "Variant changed: {name}",

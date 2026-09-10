@@ -14,6 +14,7 @@ export const BOT_COMMAND = {
   RENAME: "rename",
   COMMANDS: "commands",
   SKILLS: "skills",
+  MODEL: "model",
   OPENCODE_START: "opencode_start",
   OPENCODE_STOP: "opencode_stop",
 } as const;

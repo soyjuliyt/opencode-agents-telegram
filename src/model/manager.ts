@@ -1,7 +1,7 @@
 import path from "node:path";
 import { config } from "../config.js";
 import { opencodeClient } from "../opencode/client.js";
-import { getCurrentModel, getScopedModels, setCurrentModel } from "../settings/manager.js";
+import { getCurrentModel, getScopedModels, setCurrentModel, __readStoredSettingsForTests } from "../settings/manager.js";
 import { logger } from "../utils/logger.js";
 import type { FavoriteModel, ModelInfo, ModelSelectionLists } from "./types.js";
 
@@ -173,6 +173,27 @@ function getOpenCodeModelStatePath(): string {
 export async function getModelSelectionLists(): Promise<ModelSelectionLists> {
   const envDefaultModel = getEnvDefaultModel();
 
+  // Load favorites from settings (SQLite) if available
+  let settingsFavorites: FavoriteModel[] = [];
+  try {
+    const settings = __readStoredSettingsForTests() as {
+      modelFavorites?: Array<{ providerID?: string; modelID?: string }>;
+    } | null;
+    if (settings && Array.isArray(settings.modelFavorites)) {
+      settingsFavorites = settings.modelFavorites
+        .filter(
+          (entry): entry is { providerID: string; modelID: string } =>
+            typeof entry?.providerID === "string" &&
+            entry.providerID.length > 0 &&
+            typeof entry.modelID === "string" &&
+            entry.modelID.length > 0,
+        )
+        .map((entry) => ({ providerID: entry.providerID, modelID: entry.modelID }));
+    }
+  } catch {
+    // settings not loaded yet, skip
+  }
+
   try {
     const fs = await import("fs/promises");
 
@@ -182,15 +203,16 @@ export async function getModelSelectionLists(): Promise<ModelSelectionLists> {
 
     const rawFavorites = normalizeFavoriteModels(state);
     const rawRecent = normalizeRecentModels(state);
-    const shouldValidateWithCatalog = rawFavorites.length > 0 || rawRecent.length > 0;
+    const shouldValidateWithCatalog = rawFavorites.length > 0 || rawRecent.length > 0 || settingsFavorites.length > 0;
     const validModelKeys = shouldValidateWithCatalog ? await getValidModelKeys() : null;
 
     const validatedFavorites = filterModelsByCatalog(rawFavorites, validModelKeys);
     const validatedRecent = filterModelsByCatalog(rawRecent, validModelKeys);
+    const validatedSettingsFavorites = filterModelsByCatalog(settingsFavorites, validModelKeys);
 
     const favorites = envDefaultModel
-      ? dedupeModels([...validatedFavorites, envDefaultModel])
-      : validatedFavorites;
+      ? dedupeModels([...validatedSettingsFavorites, ...validatedFavorites, envDefaultModel])
+      : dedupeModels([...validatedSettingsFavorites, ...validatedFavorites]);
 
     if (rawFavorites.length === 0 && envDefaultModel) {
       logger.info(
@@ -291,6 +313,19 @@ export function __resetModelCatalogCacheForTests(): void {
   cachedValidModelKeys = null;
   modelCatalogCacheExpiresAt = 0;
   modelCatalogFetchInFlight = null;
+}
+
+export async function getAllAvailableModels(): Promise<FavoriteModel[]> {
+  const validModelKeys = await getValidModelKeys();
+
+  if (!validModelKeys || validModelKeys.size === 0) {
+    return [];
+  }
+
+  return Array.from(validModelKeys).map((key) => {
+    const [providerID, ...modelParts] = key.split("/");
+    return { providerID, modelID: modelParts.join("/") };
+  });
 }
 
 /**

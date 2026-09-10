@@ -1,8 +1,13 @@
 import { Context, InlineKeyboard } from "grammy";
-import { selectModel, fetchCurrentModel, getModelSelectionLists } from "../../model/manager.js";
+import { selectModel, fetchCurrentModel, getModelSelectionLists, getAllAvailableModels } from "../../model/manager.js";
 import { formatModelForDisplay } from "../../model/types.js";
 import type { FavoriteModel, ModelInfo, ModelSelectionLists } from "../../model/types.js";
 import { formatVariantForButton } from "../../variant/manager.js";
+import {
+  isModelCallbackToken,
+  registerModelCallback,
+  resolveModelCallback,
+} from "../../model/callback-registry.js";
 import { logger } from "../../utils/logger.js";
 import { createMainKeyboard } from "../utils/keyboard.js";
 import { getStoredAgent, resolveProjectAgent } from "../../agent/manager.js";
@@ -21,6 +26,7 @@ import {
   getScopeKeyFromContext,
   getThreadSendOptions,
 } from "../scope.js";
+import { MODEL_ALL_PAGE_PREFIX } from "../commands/model.js";
 
 function buildModelSelectionMenuText(modelLists: ModelSelectionLists): string {
   const lines = [t("model.menu.select"), t("model.menu.favorites_title")];
@@ -63,23 +69,32 @@ export async function handleModelSelect(ctx: Context): Promise<boolean> {
       keyboardManager.initialize(ctx.api, ctx.chat.id, scopeKey);
     }
 
-    // Parse callback data: "model:providerID:modelID"
-    const parts = callbackQuery.data.split(":");
-    if (parts.length < 3) {
-      logger.error(`[ModelHandler] Invalid callback data format: ${callbackQuery.data}`);
+    // Parse callback data: "model:<token>" for tokenized buttons,
+    // or legacy "model:providerID:modelID"
+    let modelInfo: ModelInfo | null = null;
+
+    if (isModelCallbackToken(callbackQuery.data)) {
+      modelInfo = resolveModelCallback(callbackQuery.data);
+    } else {
+      const parts = callbackQuery.data.split(":");
+      if (parts.length < 3) {
+        logger.error(`[ModelHandler] Invalid callback data format: ${callbackQuery.data}`);
+        clearActiveInlineMenu("model_select_invalid_callback", scopeKey);
+        await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
+        return true;
+      }
+
+      const providerID = parts[1];
+      const modelID = parts.slice(2).join(":"); // Handle model IDs that may contain ":"
+      modelInfo = { providerID, modelID, variant: "default" };
+    }
+
+    if (!modelInfo) {
+      logger.error(`[ModelHandler] Unknown model callback token: ${callbackQuery.data}`);
       clearActiveInlineMenu("model_select_invalid_callback", scopeKey);
       await ctx.answerCallbackQuery({ text: t("model.change_error_callback") }).catch(() => {});
       return true;
     }
-
-    const providerID = parts[1];
-    const modelID = parts.slice(2).join(":"); // Handle model IDs that may contain ":"
-
-    const modelInfo: ModelInfo = {
-      providerID,
-      modelID,
-      variant: "default", // Reset to default when switching models
-    };
 
     // Select model and persist
     selectModel(modelInfo, scopeKey);
@@ -156,7 +171,13 @@ export async function buildModelSelectionMenu(
   const recent = lists.recent;
 
   if (favorites.length === 0 && recent.length === 0) {
-    logger.warn("[ModelHandler] No model choices found in favorites/recent");
+    logger.info("[ModelHandler] No favorites/recent models, loading all available from catalog");
+    const allModels = await getAllAvailableModels();
+    if (allModels.length > 0) {
+      allModels.forEach((model) => addButton(model, "📋"));
+      return keyboard;
+    }
+    logger.warn("[ModelHandler] No model choices found at all");
     return keyboard;
   }
 
@@ -166,15 +187,19 @@ export async function buildModelSelectionMenu(
       model.providerID === currentModel.providerID &&
       model.modelID === currentModel.modelID;
 
-    // Inline buttons use full model ID without truncation
+    // Inline buttons use a short callback token to stay within the 64-byte limit
     const label = `${prefix} ${model.providerID}/${model.modelID}`;
     const labelWithCheck = isActive ? `✅ ${label}` : label;
 
-    keyboard.text(labelWithCheck, `model:${model.providerID}:${model.modelID}`).row();
+    keyboard
+      .text(labelWithCheck, `model:${registerModelCallback(model.providerID, model.modelID)}`)
+      .row();
   };
 
   favorites.forEach((model) => addButton(model, "⭐"));
   recent.forEach((model) => addButton(model, "🕘"));
+
+  keyboard.text(t("model.button.all"), `${MODEL_ALL_PAGE_PREFIX}0`).row();
 
   return keyboard;
 }

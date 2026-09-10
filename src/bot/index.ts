@@ -36,6 +36,7 @@ import {
   handleSkillsCallback,
   skillsCommand,
 } from "./commands/skills.js";
+import { modelCommand, handleModelAllPageCallback } from "./commands/model.js";
 import { ttsCommand } from "./commands/tts.js";
 import {
   handleQuestionCallback,
@@ -1351,6 +1352,7 @@ export function createBot(): Bot<Context> {
   bot.command(BOT_COMMAND.RENAME, renameCommand);
   bot.command(BOT_COMMAND.COMMANDS, commandsCommand);
   bot.command(BOT_COMMAND.SKILLS, skillsCommand);
+  bot.command(BOT_COMMAND.MODEL, modelCommand);
 
   bot.on("message:text", unknownCommandMiddleware);
 
@@ -1373,6 +1375,7 @@ export function createBot(): Bot<Context> {
       const handledPermission = await handlePermissionCallback(ctx);
       const handledAgent = await handleAgentSelect(ctx);
       const handledModel = await handleModelSelect(ctx);
+      const handledModelAllPage = await handleModelAllPageCallback(ctx);
       const handledVariant = await handleVariantSelect(ctx);
       const handledCompactConfirm = await handleCompactConfirm(ctx);
       const handledRenameCancel = await handleRenameCancel(ctx);
@@ -1384,7 +1387,7 @@ export function createBot(): Bot<Context> {
       });
 
       logger.debug(
-        `[Bot] Callback handled: inlineCancel=${handledInlineCancel}, session=${handledSession}, project=${handledProject}, open=${handledOpen}, taskList=${handledTaskList}, question=${handledQuestion}, permission=${handledPermission}, agent=${handledAgent}, model=${handledModel}, variant=${handledVariant}, compactConfirm=${handledCompactConfirm}, rename=${handledRenameCancel}, commands=${handledCommands}, skills=${handledSkills}`,
+        `[Bot] Callback handled: inlineCancel=${handledInlineCancel}, session=${handledSession}, project=${handledProject}, open=${handledOpen}, taskList=${handledTaskList}, question=${handledQuestion}, permission=${handledPermission}, agent=${handledAgent}, model=${handledModel}, modelAllPage=${handledModelAllPage}, variant=${handledVariant}, compactConfirm=${handledCompactConfirm}, rename=${handledRenameCancel}, commands=${handledCommands}, skills=${handledSkills}`,
       );
 
       if (
@@ -1397,6 +1400,7 @@ export function createBot(): Bot<Context> {
         !handledPermission &&
         !handledAgent &&
         !handledModel &&
+        !handledModelAllPage &&
         !handledVariant &&
         !handledCompactConfirm &&
         !handledRenameCancel &&

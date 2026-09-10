@@ -99,6 +99,7 @@ export interface Settings {
   scheduledTaskTopics?: ScheduledTaskTopicBinding[];
   serverProcess?: ServerProcessInfo;
   sessionDirectoryCache?: SessionDirectoryCacheInfo;
+  modelFavorites?: Array<{ providerID: string; modelID: string }>;
 }
 
 interface LegacySettings {
@@ -314,6 +315,26 @@ function sanitizeModelInfo(value: unknown): ModelInfo | undefined {
     modelID,
     variant: typeof value.variant === "string" ? value.variant : undefined,
   };
+}
+
+function sanitizeModelFavorites(
+  value: unknown,
+): Array<{ providerID: string; modelID: string }> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const favorites = value
+    .map((fav) => {
+      if (!isObject(fav)) return undefined;
+      const providerID = typeof fav.providerID === "string" ? fav.providerID : "";
+      const modelID = typeof fav.modelID === "string" ? fav.modelID : "";
+      if (!providerID || !modelID) return undefined;
+      return { providerID, modelID };
+    })
+    .filter((fav): fav is { providerID: string; modelID: string } => fav !== undefined);
+
+  return favorites.length > 0 ? favorites : undefined;
 }
 
 function sanitizeServerProcessInfo(value: unknown): ServerProcessInfo | undefined {
@@ -804,6 +825,7 @@ function sanitizeSettingsV2(value: unknown): Settings {
     scheduledTaskTopics: sanitizeScheduledTaskTopics(value.scheduledTaskTopics),
     serverProcess: sanitizeServerProcessInfo(value.serverProcess),
     sessionDirectoryCache: sanitizeSessionDirectoryCacheInfo(value.sessionDirectoryCache),
+    modelFavorites: sanitizeModelFavorites(value.modelFavorites),
   };
 }
 

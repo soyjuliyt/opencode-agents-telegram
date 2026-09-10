@@ -327,6 +327,10 @@ export const de: I18nDictionary = {
   "model.menu.favorites_hint":
     "ℹ️ Füge Modelle in OpenCode CLI zu den Favoriten hinzu, damit sie oben angezeigt werden.",
   "model.menu.error": "🔴 Modellliste konnte nicht geladen werden",
+  "model.all.title": "📋 Alle Modelle ({total}):\nSeite {page} von {pages}",
+  "model.button.all": "📋 Modelle",
+  "model.button.prev_page": "⬅️ Zurück",
+  "model.button.next_page": "Weiter ➡️",
 
   "variant.model_not_selected_callback": "Fehler: Modell ist nicht ausgewählt",
   "variant.changed_callback": "Variante geändert: {name}",
