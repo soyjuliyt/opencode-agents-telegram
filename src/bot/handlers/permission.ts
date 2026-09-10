@@ -18,7 +18,6 @@ import {
 } from "../scope.js";
 import {
   PERMISSION_SET_PREFIX,
-  buildPermissionMenu,
   formatPermissionMode,
 } from "../commands/permission.js";
 import { clearActiveInlineMenu, ensureActiveInlineMenu } from "./inline-menu.js";
@@ -214,9 +213,8 @@ export async function handlePermissionSetCallback(ctx: Context): Promise<boolean
 
     setPermissionMode(mode, scopeKey);
 
-    const keyboard = buildPermissionMenu(mode);
-    const text = t("permission.set.title", { mode: formatPermissionMode(mode) });
-    await ctx.editMessageText(text, { reply_markup: keyboard });
+    clearActiveInlineMenu("permission_set_changed", scopeKey);
+    await ctx.deleteMessage().catch(() => {});
 
     return true;
   } catch (err) {

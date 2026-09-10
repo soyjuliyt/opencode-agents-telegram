@@ -133,9 +133,8 @@ describe("bot/commands/permission", () => {
 
     expect(handled).toBe(true);
     expect(mocked.setPermissionMode).toHaveBeenCalledWith("deny_all", scopeKey);
-    expect(ctx.editMessageText).toHaveBeenCalledTimes(1);
-    const text = (ctx.editMessageText as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
-    expect(text).toContain("Deny all automatically");
+    expect(ctx.deleteMessage).toHaveBeenCalledTimes(1);
+    expect(interactionManager.getSnapshot(scopeKey)).toBeNull();
   });
 
   it("returns false for unrelated callbacks", async () => {
