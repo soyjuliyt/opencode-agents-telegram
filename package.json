@@ -30,7 +30,9 @@
     "lint": "eslint --max-warnings=0",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "autostart:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-autostart.ps1 -StartNow",
+    "autostart:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-autostart.ps1 -Uninstall"
   },
   "repository": {
     "type": "git",

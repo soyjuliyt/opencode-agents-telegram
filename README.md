@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-526%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-527%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)]()
 
 **Languages:** English (`en`), Deutsch (`de`), Español (`es`), Français (`fr`), Русский (`ru`), [简体中文 (`zh-CN`)](./README.zh-CN.md)
@@ -134,6 +134,9 @@ npx opencode-telegram-group-topics-bot
 npm install -g opencode-telegram-group-topics-bot
 opencode-telegram-group-topics-bot config
 opencode-telegram-group-topics-bot start
+
+# Windows: run hidden in the background (daemon). Manage with `status` / `stop`.
+opencode-telegram-group-topics-bot start --daemon
 ```
 
 **Option C: From source**
@@ -395,8 +398,14 @@ npm run dev
 | `npm start` | Run compiled |
 | `npm run lint` | ESLint (zero warnings) |
 | `npm run format` | Prettier |
-| `npm test` | Vitest (526 tests) |
+| `npm test` | Vitest (527 tests) |
 | `npm run test:coverage` | Coverage report |
+| `npm run autostart:install` | Windows: arrancar con tu sesión + iniciar ya (no root) |
+| `npm run autostart:uninstall` | Windows: sacar del arranque con Windows |
+
+### Windows autostart
+
+El bot puede instalarse como **servicio de usuario que arranca solo al iniciar sesión en Windows** (`npm run autostart:install`). Usa el daemon nativo oculto (`node dist/cli.js start --daemon`): sin ventanas, log propio en `logs/bot-service-*.log` y estado en `run/bot-service.json`. El instalador coloca un lanzador oculto en la carpeta de inicio, espera 30 s y evita duplicados. Para gestionarlo: `node dist/cli.js status` / `node dist/cli.js stop`. Detalles y pasos manuales: [docs/WINDOWS_AUTOSTART.md](./docs/WINDOWS_AUTOSTART.md).
 
 ---
 
