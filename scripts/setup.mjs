@@ -150,9 +150,9 @@ function step(title) {
 }
 
 function run(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { cwd: repoRoot, stdio: "inherit", ...opts });
+  const result = spawnSync(cmd, args, { cwd: repoRoot, stdio: "inherit", shell: IS_WINDOWS, ...opts });
   if (result.status !== 0) {
-    process.stderr.write(`\nCommand failed (exit ${result.status}): ${cmd} ${args.join(" ")}\n`);
+    process.stderr.write(`\nCommand failed (exit ${result.status ?? "null"}): ${cmd} ${args.join(" ")}\n`);
     process.exit(result.status ?? 1);
   }
   return result;
@@ -390,18 +390,6 @@ async function main() {
       step("Starting the bot via LaunchAgent");
       const plistPath = path.join(os.homedir(), "Library", "LaunchAgents", "com.opencode-telegram.group-topics-bot.plist");
       spawnSync("launchctl", ["bootstrap", `gui/${os.userInfo().uid}`, plistPath], { stdio: "inherit" });
-    }
-  }
-
-  if (!dry && !flags["--no-autostart"]) {
-    if (IS_WINDOWS) {
-      installWindowsAutostart();
-    } else if (process.platform === "linux") {
-      installLinuxAutostart(process.execPath);
-    } else if (process.platform === "darwin") {
-      installMacAutostart(process.execPath);
-    } else {
-      log(`Autostart not implemented for platform ${process.platform}; run the bot manually.`);
     }
   }
 
