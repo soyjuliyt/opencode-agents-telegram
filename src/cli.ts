@@ -4,7 +4,10 @@ import type { RuntimeMode } from "./runtime/mode.js";
 import { parseCliArgs } from "./cli/args.js";
 import { resolveRuntimeMode, setRuntimeMode } from "./runtime/mode.js";
 import { getRuntimePaths } from "./runtime/paths.js";
+import { resolveServiceCommandMode } from "./cli/service-mode.js";
 import { t } from "./i18n/index.js";
+import fs from "node:fs";
+import path from "node:path";
 
 const EXIT_SUCCESS = 0;
 const EXIT_RUNTIME_ERROR = 1;
@@ -162,8 +165,21 @@ async function runConfigCommand(mode?: RuntimeMode): Promise<number> {
   return EXIT_SUCCESS;
 }
 
-async function runStatusCommand(): Promise<number> {
+async function resolveServiceCommandRuntimeMode(): Promise<RuntimeMode> {
   setRuntimeMode("installed");
+  const installedStateExists = fs.existsSync(path.join(getRuntimePaths().runDirPath, "bot-service.json"));
+  return resolveServiceCommandMode({
+    homeOverride: process.env.OPENCODE_TELEGRAM_HOME,
+    installedStateExists,
+    cwdLooksLikeSource:
+      fs.existsSync(path.join(process.cwd(), "package.json")) &&
+      fs.existsSync(path.join(process.cwd(), "run")),
+  });
+}
+
+async function runStatusCommand(): Promise<number> {
+  const mode = await resolveServiceCommandRuntimeMode();
+  setRuntimeMode(mode);
 
   const { getBotServiceStatus } = await import("./service/manager.js");
   const runtimePaths = getRuntimePaths();
@@ -191,7 +207,8 @@ async function runStatusCommand(): Promise<number> {
 }
 
 async function runStopCommand(): Promise<number> {
-  setRuntimeMode("installed");
+  const mode = await resolveServiceCommandRuntimeMode();
+  setRuntimeMode(mode);
 
   const { stopBotDaemon } = await import("./service/manager.js");
   const result = await stopBotDaemon();
