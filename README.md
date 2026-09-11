@@ -159,6 +159,26 @@ The CLI walks you through language, bot token, allowed user ID, and optional Ope
 4. `/new` → creates a session topic
 5. Enter the topic → send a prompt → watch it work
 
+### Deploy on any machine (one-shot)
+
+Windows, Linux or macOS, **no Docker, native install**. The one-liner installs
+Node.js 20+, fetches this repo and runs the universal setup: writes `.env`
+(wizard or flags), builds, starts the bot **hidden in the background** and
+installs logon autostart (Startup VBS / systemd / launchd) by default.
+
+```powershell
+# Windows
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1 --token 123456:ABC --user-id 123456
+```
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/soyjuliyt/opencode-agents-telegram/main/scripts/bootstrap.sh | bash -s -- --token 123456:ABC --user-id 123456
+```
+
+Already have Node and the repo? Just `npm run deploy` (or
+`node scripts/setup.mjs`). Full details: [docs/DEPLOY.md](./docs/DEPLOY.md).
+
 ---
 
 ## Daily Workflow (Mobile-First)
@@ -400,6 +420,7 @@ npm run dev
 | `npm run format` | Prettier |
 | `npm test` | Vitest (527 tests) |
 | `npm run test:coverage` | Coverage report |
+| `npm run deploy` | Universal one-shot deploy (wizard/flags, build, hidden start, autostart) |
 | `npm run autostart:install` | Windows: arrancar con tu sesión + iniciar ya (no root) |
 | `npm run autostart:uninstall` | Windows: sacar del arranque con Windows |
 

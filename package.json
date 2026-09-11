@@ -31,6 +31,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "deploy": "node scripts/setup.mjs",
     "autostart:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-autostart.ps1 -StartNow",
     "autostart:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-autostart.ps1 -Uninstall"
   },
