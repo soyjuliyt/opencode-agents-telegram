@@ -15,7 +15,6 @@ import {
   type Locale,
 } from "../i18n/index.js";
 
-const DEFAULT_API_URL = "http://localhost:4096";
 const DEFAULT_SERVER_USERNAME = "opencode";
 const FALLBACK_MODEL_PROVIDER = "opencode";
 const FALLBACK_MODEL_ID = "big-pickle";
@@ -86,7 +85,8 @@ export function validateRuntimeEnvValues(values: Record<string, string>): EnvVal
     return { isValid: false, reason: "Missing TELEGRAM_BOT_TOKEN" };
   }
 
-  if (!isPositiveInteger(values.TELEGRAM_ALLOWED_USER_ID || "")) {
+  const allowedUserId = values.TELEGRAM_ALLOWED_USER_ID?.trim();
+  if (allowedUserId && !isPositiveInteger(allowedUserId)) {
     return { isValid: false, reason: "Invalid TELEGRAM_ALLOWED_USER_ID" };
   }
 
@@ -450,60 +450,6 @@ async function askLocale(): Promise<Locale> {
   }
 }
 
-async function askAllowedUserId(): Promise<string> {
-  for (;;) {
-    const allowedUserId = await askVisible(t("runtime.wizard.ask_user_id"));
-
-    if (!isPositiveInteger(allowedUserId)) {
-      process.stdout.write(t("runtime.wizard.user_id_invalid"));
-      continue;
-    }
-
-    return allowedUserId;
-  }
-}
-
-async function askApiUrl(): Promise<string | undefined> {
-  const prompt = t("runtime.wizard.ask_api_url", { defaultUrl: DEFAULT_API_URL });
-
-  for (;;) {
-    const apiUrl = await askVisible(prompt);
-
-    if (!apiUrl) {
-      return undefined;
-    }
-
-    if (!isValidHttpUrl(apiUrl)) {
-      process.stdout.write(t("runtime.wizard.api_url_invalid"));
-      continue;
-    }
-
-    return apiUrl;
-  }
-}
-
-async function askServerUsername(): Promise<string> {
-  const prompt = t("runtime.wizard.ask_server_username", {
-    defaultUsername: DEFAULT_SERVER_USERNAME,
-  });
-
-  const username = await askVisible(prompt);
-  if (!username) {
-    return DEFAULT_SERVER_USERNAME;
-  }
-
-  return username;
-}
-
-async function askServerPassword(): Promise<string | undefined> {
-  const password = await askHidden(t("runtime.wizard.ask_server_password"));
-  if (!password) {
-    return undefined;
-  }
-
-  return password;
-}
-
 async function collectWizardValues(): Promise<WizardCollectedValues> {
   const locale = await askLocale();
   setRuntimeLocale(locale);
@@ -524,20 +470,18 @@ async function collectWizardValues(): Promise<WizardCollectedValues> {
   process.stdout.write("\n");
 
   const token = await askToken();
-  const allowedUserId = await askAllowedUserId();
-  const apiUrl = await askApiUrl();
-  const serverUsername = await askServerUsername();
-  const serverPassword = await askServerPassword();
 
+  process.stdout.write("\n");
+  process.stdout.write(t("runtime.wizard.owner_hint"));
   process.stdout.write("\n");
 
   return {
     locale,
     token,
-    allowedUserId,
-    apiUrl,
-    serverUsername,
-    serverPassword,
+    allowedUserId: "",
+    apiUrl: undefined,
+    serverUsername: DEFAULT_SERVER_USERNAME,
+    serverPassword: undefined,
   };
 }
 
@@ -615,4 +559,36 @@ export async function ensureRuntimeConfigForStart(): Promise<void> {
 export async function runConfigWizardCommand(): Promise<void> {
   const runtimePaths = getRuntimePaths();
   await runWizardAndPersist(runtimePaths);
+}
+
+const OWNER_USER_ID_KEY = "TELEGRAM_ALLOWED_USER_ID";
+
+export async function persistOwnerUserId(userId: number): Promise<void> {
+  const { envFilePath } = getRuntimePaths();
+  let content = "";
+
+  try {
+    content = await fs.readFile(envFilePath, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const assignmentRegex = new RegExp(`^\\s*(?:export\\s+)?${escapeRegex(OWNER_USER_ID_KEY)}\\s*=.*$`);
+  let found = false;
+  const lines = content.split("\n");
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (assignmentRegex.test(lines[index])) {
+      lines[index] = `${OWNER_USER_ID_KEY}=${userId}`;
+      found = true;
+    }
+  }
+
+  if (!found) {
+    lines.push(`${OWNER_USER_ID_KEY}=${userId}`);
+  }
+
+  await writeFileAtomically(envFilePath, `${lines.join("\n").replace(/\n+$/, "")}\n`);
 }

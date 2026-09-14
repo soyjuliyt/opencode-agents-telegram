@@ -552,6 +552,10 @@ export const es: I18nDictionary = {
     "⚠️ Los comandos de control de sesión están deshabilitados en DM. Usa un hilo de tema en grupo para trabajar con proyectos/sesiones.",
   "dm.restricted.prompt":
     "⚠️ Los prompts están deshabilitados en DM. Usa un hilo de tema en grupo para ejecutar tareas de OpenCode.",
+  "onboarding.adopted":
+    "✅ Ahora eres el admin de este bot: la propiedad se tomó con solo tu token.\n\nEnvía /start para comenzar y luego agrega el bot a tu supergrupo con Topics habilitados.",
+  "runtime.wizard.owner_hint":
+    "\nTu Telegram User ID se detectará automáticamente la primera vez que le escribas al bot con /start.\n",
   "help.dm.title": "Comandos de control en DM",
   "help.dm.command_start": "mostrar guía del modo DM",
   "help.dm.hint": "Usa hilos de tema en grupo para trabajo de proyecto/sesión.",

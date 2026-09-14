@@ -553,6 +553,10 @@ export const de: I18nDictionary = {
     "⚠️ Sitzungs-Steuerbefehle sind im DM deaktiviert. Nutze einen Gruppen-Topic-Thread für Projekt-/Sitzungsarbeit.",
   "dm.restricted.prompt":
     "⚠️ Prompts sind im DM deaktiviert. Nutze einen Gruppen-Topic-Thread, um OpenCode-Aufgaben auszuführen.",
+  "onboarding.adopted":
+    "✅ Du bist jetzt der Admin dieses Bots — die Eigentümerschaft wurde mit nur deinem Token übernommen.\n\nSende /start, um zu beginnen, und füge den Bot danach deiner Supergruppe mit aktivierten Topics hinzu.",
+  "runtime.wizard.owner_hint":
+    "\nDeine Telegram-User-ID wird automatisch erfasst, sobald du dem Bot das erste Mal /start schickst.\n",
   "help.dm.title": "DM-Steuerbefehle",
   "help.dm.command_start": "DM-Modus-Hinweise anzeigen",
   "help.dm.hint": "Nutze Gruppen-Topic-Threads für Projekt-/Sitzungsarbeit.",

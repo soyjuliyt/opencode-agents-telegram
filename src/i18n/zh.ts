@@ -490,6 +490,9 @@ export const zh: I18nDictionary = {
   "status.global_sessions": "会话数：{count}",
   "dm.restricted.command": "⚠️ 私聊中已禁用会话控制命令。请使用群组话题线程进行项目/会话工作。",
   "dm.restricted.prompt": "⚠️ 私聊中已禁用任务输入。请使用群组话题线程运行 OpenCode 任务。",
+  "onboarding.adopted":
+    "✅ 你现在是这个机器人的管理员——仅凭 token 就已获得所有权。\n\n发送 /start 开始，然后将机器人添加到启用了 Topics 的超级群组。",
+  "runtime.wizard.owner_hint": "\n你的 Telegram User ID 会在首次用 /start 私聊机器人时自动采集。\n",
   "help.dm.title": "私聊控制命令",
   "help.dm.command_start": "显示私聊模式说明",
   "help.dm.hint": "请使用群组话题线程进行项目/会话工作。",

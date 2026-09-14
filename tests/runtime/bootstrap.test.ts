@@ -1,11 +1,28 @@
-import { describe, expect, it } from "vitest";
-import { buildEnvFileContent, validateRuntimeEnvValues } from "../../src/runtime/bootstrap.js";
+import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  buildEnvFileContent,
+  persistOwnerUserId,
+  validateRuntimeEnvValues,
+} from "../../src/runtime/bootstrap.js";
 
 describe("runtime/bootstrap", () => {
   it("validates required runtime env values", () => {
     const result = validateRuntimeEnvValues({
       TELEGRAM_BOT_TOKEN: "123456:abcdef",
       TELEGRAM_ALLOWED_USER_ID: "123456789",
+      OPENCODE_MODEL_PROVIDER: "opencode",
+      OPENCODE_MODEL_ID: "big-pickle",
+    });
+
+    expect(result).toEqual({ isValid: true });
+  });
+
+  it("accepts a missing user id (token-only onboarding mode)", () => {
+    const result = validateRuntimeEnvValues({
+      TELEGRAM_BOT_TOKEN: "123456:abcdef",
       OPENCODE_MODEL_PROVIDER: "opencode",
       OPENCODE_MODEL_ID: "big-pickle",
     });
@@ -155,5 +172,28 @@ describe("runtime/bootstrap", () => {
     expect(updated).toContain("OPENCODE_MODEL_ID=new-model");
     expect(updated).toContain("CUSTOM_FLAG=enabled");
     expect(updated).toContain("EXTRA_TOKEN=abc");
+  });
+
+  it("persists the owner user id into a new env file", async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "octb-owner-"));
+    vi.stubEnv("OPENCODE_TELEGRAM_HOME", homeDir);
+
+    await persistOwnerUserId(987654321);
+
+    const content = fs.readFileSync(path.join(homeDir, ".env"), "utf-8");
+    expect(content).toContain("TELEGRAM_ALLOWED_USER_ID=987654321");
+  });
+
+  it("updates the owner user id without duplicating the key", async () => {
+    const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "octb-owner-"));
+    vi.stubEnv("OPENCODE_TELEGRAM_HOME", homeDir);
+    fs.writeFileSync(path.join(homeDir, ".env"), "TELEGRAM_BOT_TOKEN=old\nTELEGRAM_ALLOWED_USER_ID=1\n");
+
+    await persistOwnerUserId(555);
+
+    const content = fs.readFileSync(path.join(homeDir, ".env"), "utf-8");
+    expect(content).toContain("TELEGRAM_ALLOWED_USER_ID=555");
+    expect(content.match(/TELEGRAM_ALLOWED_USER_ID=/g)).toHaveLength(1);
+    expect(content).toContain("TELEGRAM_BOT_TOKEN=old");
   });
 });

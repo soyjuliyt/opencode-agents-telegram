@@ -136,6 +136,10 @@ export const en = {
     "⚠️ Session control commands are disabled in DM. Use a group topic thread for project/session work.",
   "dm.restricted.prompt":
     "⚠️ Prompts are disabled in DM. Use a group topic thread to run OpenCode tasks.",
+  "onboarding.adopted":
+    "✅ You are now the admin of this bot — ownership was claimed with just your token.\n\nSend /start to begin, then add the bot to your supergroup with Topics enabled.",
+  "runtime.wizard.owner_hint":
+    "\nYour Telegram User ID will be picked up automatically the first time you DM the bot with /start.\n",
   "help.dm.title": "DM control commands",
   "help.dm.command_start": "show DM mode guidance",
   "help.dm.hint": "Use group topic threads for project/session work.",

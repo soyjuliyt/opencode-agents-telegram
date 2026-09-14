@@ -1,6 +1,11 @@
 import { Context, NextFunction } from "grammy";
 import { config } from "../../config.js";
+import { t } from "../../i18n/index.js";
+import { persistOwnerUserId } from "../../runtime/bootstrap.js";
 import { logger } from "../../utils/logger.js";
+import { CHAT_TYPE } from "../constants.js";
+
+const ONBOARDING_SENTINEL = 0;
 
 export async function authMiddleware(ctx: Context, next: NextFunction): Promise<void> {
   const userId = ctx.from?.id;
@@ -8,6 +13,11 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
   logger.debug(
     `[Auth] Checking access: userId=${userId}, allowedUserId=${config.telegram.allowedUserId}, hasCallbackQuery=${!!ctx.callbackQuery}, hasMessage=${!!ctx.message}`,
   );
+
+  if (config.telegram.allowedUserId === ONBOARDING_SENTINEL) {
+    await handleOnboarding(ctx, userId, next);
+    return;
+  }
 
   if (userId && userId === config.telegram.allowedUserId) {
     logger.debug(`[Auth] Access granted for userId=${userId}`);
@@ -32,4 +42,19 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
       }
     }
   }
+}
+
+async function handleOnboarding(ctx: Context, userId: number | undefined, next: NextFunction): Promise<void> {
+  if (userId && ctx.chat?.type === CHAT_TYPE.PRIVATE) {
+    await persistOwnerUserId(userId);
+    config.telegram.allowedUserId = userId;
+    logger.info(`[Auth] Onboarding complete: adopted user ${userId} as owner`);
+    await ctx.reply(t("onboarding.adopted"));
+    await next();
+    return;
+  }
+
+  logger.warn(
+    `[Auth] Ignoring update while awaiting owner adoption (chatType=${ctx.chat?.type}, userId=${userId})`,
+  );
 }
