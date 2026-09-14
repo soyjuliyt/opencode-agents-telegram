@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,9 @@ const USAGE = `Usage:
 Universal deploy for the OpenCode Telegram Group Topics Bot.
 Configures .env, builds, starts the bot hidden in the background and
 installs logon autostart for the current platform (Windows Startup VBS,
-Linux systemd user service, macOS launchd agent).
+Linux systemd user service, macOS launchd agent). The OpenCode server
+itself is also started and registered for autostart, secured with a
+randomly generated server password (overridable via --server-password).
 
 Options:
   --token <bot-token>          Telegram bot token (required)
@@ -31,9 +34,9 @@ Options:
   --model <id>                 Default model ID (default: big-pickle)
   --api-url <url>              OpenCode server URL (default: http://localhost:4096)
   --server-user <user>         OpenCode server username (default: opencode)
-  --server-password <secret>   OpenCode server password (optional)
+  --server-password <secret>   OpenCode server password (optional; a random one is generated if omitted)
   --locale <en|es|de|fr|ru|zh> Bot UI language (default: en)
-  --no-opencode                Do not attempt to install OpenCode if missing
+  --no-opencode                Do not attempt to install OpenCode / its autostart if missing
   --no-start                   Do not start the bot after setup
   --no-autostart               Do not install the logon autostart entry
   --no-build                   Do not run the TypeScript build
@@ -241,15 +244,7 @@ function installMacAutostart(nodePath) {
   const plistPath = path.join(launchDir, "com.opencode-telegram.group-topics-bot.plist");
   const logPath = path.join(repoRoot, "logs", "bot-autostart.log");
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
-  const launchPath = [
-    ...opencodeBinCandidates().filter((p) => p),
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-  ].join(":");
+  const launchPath = launchdPath();
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -310,6 +305,120 @@ function loadLaunchAgent(plistPath) {
   return legacy.status === 0;
 }
 
+function installMacOpenCodeServerAutostart(serverPassword) {
+  step("Installing macOS autostart for the OpenCode server (launchd agent)");
+  const launchDir = path.join(os.homedir(), "Library", "LaunchAgents");
+  fs.mkdirSync(launchDir, { recursive: true });
+  const plistPath = path.join(launchDir, "com.opencode-telegram.opencode-server.plist");
+  const logPath = path.join(repoRoot, "logs", "opencode-serve.log");
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.opencode-telegram.opencode-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${findOpencodeBinary()}</string>
+    <string>serve</string>
+    <string>--port</string>
+    <string>4096</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${repoRoot}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>${os.homedir()}</string>
+    <key>OPENCODE_SERVER_PASSWORD</key>
+    <string>${serverPassword}</string>
+    <key>PATH</key>
+    <string>${launchdPath()}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>${logPath}</string>
+  <key>StandardErrorPath</key>
+  <string>${logPath}</string>
+</dict>
+</plist>
+`;
+  fs.writeFileSync(plistPath, plist, "utf-8");
+  log(`LaunchAgent written: ${plistPath}`);
+  return loadLaunchAgent(plistPath);
+}
+
+function installLinuxOpenCodeServerAutostart(serverPassword) {
+  step("Installing Linux autostart for the OpenCode server (systemd user service)");
+  const configDir = path.join(os.homedir(), ".config", "systemd", "user");
+  fs.mkdirSync(configDir, { recursive: true });
+  const unitPath = path.join(configDir, "opencode-telegram-opencode-server.service");
+  const escapedPassword = serverPassword.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const unit = `[Unit]
+Description=OpenCode Server (for OpenCode Telegram Bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${repoRoot}
+Environment=HOME=${os.homedir()}
+Environment=OPENCODE_SERVER_PASSWORD="${escapedPassword}"
+ExecStart=${findOpencodeBinary()} serve --port 4096
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+`;
+  fs.writeFileSync(unitPath, unit, "utf-8");
+  log(`Unit written: ${unitPath}`);
+  const sysctl = spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "inherit" });
+  if (sysctl.status !== 0) {
+    log("systemctl --user not available; enable it manually:\n  systemctl --user enable --now opencode-telegram-opencode-server");
+    return;
+  }
+  spawnSync("systemctl", ["--user", "enable", "--now", "opencode-telegram-opencode-server.service"], { stdio: "inherit" });
+}
+
+function installWindowsOpenCodeServerAutostart(serverPassword) {
+  step("Installing Windows logon autostart for the OpenCode server (Startup VBS)");
+  const startupDir = path.join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
+  fs.mkdirSync(startupDir, { recursive: true });
+  const launcherPath = path.join(startupDir, "opencode-telegram-server-start.vbs");
+  const logsDir = path.join(repoRoot, "logs");
+  fs.mkdirSync(logsDir, { recursive: true });
+  const logFile = path.join(logsDir, "opencode-serve.log");
+  const opencodeCmd = ["opencode.cmd", "opencode"].find((candidate) => {
+    return spawnSync("where", [candidate], { stdio: "pipe" }).status === 0;
+  });
+  const vbs = `Option Explicit
+Dim shell, env, wmi, col
+Set wmi = GetObject("winmgmts:\\\\.\\root\\cimv2")
+Set col = wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name='opencode.exe' AND CommandLine LIKE '%serve%'")
+If col.Count = 0 Then
+    WScript.Sleep 30000
+    Set col = wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name='opencode.exe' AND CommandLine LIKE '%serve%'")
+    If col.Count = 0 Then
+        Set shell = CreateObject("WScript.Shell")
+        shell.CurrentDirectory = "${repoRoot}"
+        Set env = shell.Environment("Process")
+        env("OPENCODE_SERVER_PASSWORD") = "${serverPassword}"
+        env("HOME") = "${os.homedir()}"
+        shell.Run "cmd /c ""${opencodeCmd}"" serve >> ""${logFile}"" 2>&1", 0, False
+    End If
+End If
+`;
+  fs.writeFileSync(launcherPath, vbs, "utf-8");
+  log(`Autostart launcher written: ${launcherPath}`);
+}
+
 function startDaemon() {
   step("Starting the bot as a hidden background daemon");
   const env = { ...process.env, OPENCODE_TELEGRAM_HOME: repoRoot };
@@ -332,6 +441,38 @@ function opencodeBinCandidates() {
     "/opt/homebrew/bin/opencode",
     "/usr/local/bin/opencode",
   ];
+}
+
+function findOpencodeBinary() {
+  const candidate = opencodeBinCandidates().find((p) => fs.existsSync(p));
+  if (candidate) {
+    return candidate;
+  }
+  return "opencode";
+}
+
+function launchdPath() {
+  return [
+    ...opencodeBinCandidates().filter((p) => p),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ].join(":");
+}
+
+function randomSecret() {
+  return randomBytes(18).toString("hex");
+}
+
+function stopRunningOpenCodeServers() {
+  if (IS_WINDOWS) {
+    spawnSync("taskkill", ["/F", "/IM", "opencode.exe"], { stdio: "ignore" });
+  } else {
+    spawnSync("pkill", ["-f", "opencode serve"], { stdio: "ignore" });
+  }
 }
 
 function opencodeOnPath() {
@@ -395,18 +536,23 @@ function managementSummary() {
     return `Windows:
   node dist/cli.js status           # service status (PID, uptime, log)
   node dist/cli.js stop             # stop the background daemon
-  npm run autostart:uninstall       # remove the logon autostart launcher`;
+  npm run autostart:uninstall       # remove the bot logon autostart launcher
+  OpenCode server: startup VBS (opencode-telegram-server-start.vbs), logs at logs\\opencode-serve.log`;
   }
   if (process.platform === "linux") {
-    return `Linux (systemd user service):
+    return `Linux (systemd user services):
   systemctl --user status opencode-telegram-group-topics-bot
   systemctl --user restart opencode-telegram-group-topics-bot
-  systemctl --user disable --now opencode-telegram-group-topics-bot   # stop + disable autostart`;
+  systemctl --user disable --now opencode-telegram-group-topics-bot   # stop + disable bot autostart
+  systemctl --user status opencode-telegram-opencode-server           # OpenCode server`;
   }
-  return `macOS (launchd agent):
+  return `macOS (launchd agents):
   launchctl print gui/$(id -u)/com.opencode-telegram.group-topics-bot
   launchctl kickstart -k gui/$(id -u)/com.opencode-telegram.group-topics-bot
-  launchctl bootout gui/$(id -u)/com.opencode-telegram.group-topics-bot  # stop + remove agent`;
+  launchctl print gui/$(id -u)/com.opencode-telegram.opencode-server   # OpenCode server
+  launchctl kickstart -k gui/$(id -u)/com.opencode-telegram.opencode-server
+  launchctl bootout gui/$(id -u)/com.opencode-telegram.group-topics-bot  # stop + remove bot agent
+  launchctl bootout gui/$(id -u)/com.opencode-telegram.opencode-server   # stop + remove server agent`;
 }
 
 async function main() {
@@ -449,6 +595,10 @@ async function main() {
         log(`  ${key}=${envValueNeedsQuotes(values[key]) ? `"${maskValue(key, values[key])}"` : maskValue(key, values[key])}`);
       }
     }
+    if (!values.OPENCODE_SERVER_PASSWORD) {
+      log("  OPENCODE_SERVER_PASSWORD=<generated>");
+    }
+    log("Would also install logon autostart for the bot and the OpenCode server.");
   }
 
   if (!dry && !flags["--no-build"]) {
@@ -465,7 +615,17 @@ async function main() {
   if (!dry) {
     step("Writing .env");
     values.TELEGRAM_ALLOWED_USER_ID = String(values.TELEGRAM_ALLOWED_USER_ID).trim();
+    if (!values.OPENCODE_SERVER_PASSWORD) {
+      values.OPENCODE_SERVER_PASSWORD = randomSecret();
+      log("Generated a random OpenCode server password (stored in .env).");
+    }
     writeEnvFile({ ...envFile, values });
+  }
+
+  const installServerAutostart = !flags["--no-autostart"] && !flags["--no-opencode"];
+  let macServerLoaded = false;
+  if (!dry && installServerAutostart && values.OPENCODE_SERVER_PASSWORD && !IS_WINDOWS) {
+    stopRunningOpenCodeServers();
   }
 
   let macAgentLoaded = false;
@@ -478,6 +638,16 @@ async function main() {
       macAgentLoaded = installMacAutostart(process.execPath);
     } else {
       log(`Autostart not implemented for platform ${process.platform}; run the bot manually.`);
+    }
+  }
+
+  if (!dry && installServerAutostart && values.OPENCODE_SERVER_PASSWORD) {
+    if (IS_WINDOWS) {
+      installWindowsOpenCodeServerAutostart(values.OPENCODE_SERVER_PASSWORD);
+    } else if (process.platform === "linux") {
+      installLinuxOpenCodeServerAutostart(values.OPENCODE_SERVER_PASSWORD);
+    } else if (process.platform === "darwin") {
+      macServerLoaded = installMacOpenCodeServerAutostart(values.OPENCODE_SERVER_PASSWORD);
     }
   }
 
@@ -502,6 +672,23 @@ async function main() {
       }
       if (macAgentLoaded) {
         spawnSync("launchctl", ["kickstart", `gui/${os.userInfo().uid}/com.opencode-telegram.group-topics-bot`], { stdio: "inherit" });
+      }
+    }
+  }
+
+  if (!dry && !flags["--no-start"] && installServerAutostart && values.OPENCODE_SERVER_PASSWORD) {
+    if (process.platform === "linux") {
+      spawnSync("systemctl", ["--user", "start", "opencode-telegram-opencode-server.service"], { stdio: "inherit" });
+    } else if (process.platform === "darwin") {
+      step("Starting the OpenCode server via LaunchAgent");
+      const plistPath = path.join(os.homedir(), "Library", "LaunchAgents", "com.opencode-telegram.opencode-server.plist");
+      if (!macServerLoaded) {
+        macServerLoaded = loadLaunchAgent(plistPath);
+      } else {
+        log("LaunchAgent already running — nothing to do.");
+      }
+      if (macServerLoaded) {
+        spawnSync("launchctl", ["kickstart", `gui/${os.userInfo().uid}/com.opencode-telegram.opencode-server`], { stdio: "inherit" });
       }
     }
   }

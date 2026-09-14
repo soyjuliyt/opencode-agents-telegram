@@ -9,6 +9,8 @@ El bot es el **cliente**; necesita el **OpenCode server** alcanzable en
 `OPENCODE_API_URL` (por defecto `http://localhost:4096`, levantado con
 `opencode serve`). Si OpenCode no está instalado, el propio deploy lo instala
 nativamente (binario oficial en Linux/macOS, `npm i -g opencode-ai` en Windows).
+El deploy también **arranca el server y lo registra con autostart** de login,
+protegido con una password al azar (generada e inyectada a `.env`).
 
 ## Una sola línea (bootstrap)
 
@@ -57,22 +59,25 @@ node scripts/setup.mjs --token 123456:ABC
 
 Flags: `--token`, `--user-id` (opcional), `--provider` (default `opencode`),
 `--model` (default `big-pickle`), `--api-url` (default `http://localhost:4096`),
-`--server-user` (default `opencode`), `--server-password`, `--locale`,
-`--no-opencode`, `--no-start`, `--no-autostart`, `--no-build`, `--yes`,
-`--dry-run`, `--help`.
+`--server-user` (default `opencode`), `--server-password` (si se omite, se
+genera una al azar), `--locale`, `--no-opencode`, `--no-start`,
+`--no-autostart`, `--no-build`, `--yes`, `--dry-run`, `--help`.
 
 Qué hace (en orden):
 
 1. comprueba/instala **OpenCode** (si falta y no se pasó `--no-opencode`);
-2. escribe `.env` (fusionando lo que ya exista — solo el token es obligatorio);
+2. escribe `.env` (fusionando lo que ya exista — solo el token es obligatorio;
+   si no hay password de server, genera una al azar);
 3. `npm install` (solo si falta `node_modules`) y `npm run build`;
 4. arranca el bot oculto en segundo plano;
-5. instala el autostart con el login, según plataforma:
-   - **Windows**: daemon nativo (`dist/cli.js start --daemon`, oculto con
-     `windowsHide`) lanzado por un `.vbs` en la carpeta *Inicio*;
-   - **Linux**: servicio user de systemd (`~/.config/systemd/user/...service`)
-     que ejecuta `dist/index.js` en primer plano gestionado por systemd;
-   - **macOS**: agente launchd (`~/Library/LaunchAgents/...plist`) con
+5. arranca el **OpenCode server** (`opencode serve`) con la password de `.env`;
+6. instala el autostart con el login para **bot + server**, según plataforma:
+   - **Windows**: daemon nativo del bot (`dist/cli.js start --daemon`, oculto
+     con `windowsHide`) lanzado por un `.vbs` en la carpeta *Inicio*, y otro
+     `.vbs` para `opencode serve`;
+   - **Linux**: servicios user de systemd
+     (`~/.config/systemd/user/...service`) para `dist/index.js` y `opencode serve`;
+   - **macOS**: agentes launchd (`~/Library/LaunchAgents/...plist`) con
      `KeepAlive` y `ThrottleInterval` para evitar bucles de reinicio.
 
 > El user ID del admin **no se pide**: la primera persona que escriba al bot
@@ -87,8 +92,10 @@ Qué hace (en orden):
 | Linux | `systemctl --user status opencode-telegram-group-topics-bot` | `systemctl --user stop ...` | `systemctl --user disable ...` |
 | macOS | `launchctl print gui/$(id -u)/com.opencode-telegram.group-topics-bot` | `launchctl bootout gui/$(id -u)/...` | quitar el plist de `~/Library/LaunchAgents` |
 
-Los logs del bot van a `<repo>/logs/` (`bot-service-*.log` en Windows,
-`bot-autostart.log` en todos; en Linux el journal de systemd también los captura).
+El server de OpenCode se gestiona igual: en Linux `...opencode-server.service`
+(systemd user) y en macOS `...com.opencode-telegram.opencode-server` (launchd).
+Los logs van a `<repo>/logs/` (`bot-autostart.log`, `opencode-serve.log`;
+en Windows también `bot-service-*.log`, y en Linux el journal de systemd).
 
 ## Checklist del día uno
 
@@ -96,5 +103,6 @@ Los logs del bot van a `<repo>/logs/` (`bot-service-*.log` en Windows,
 2. Escribirle al bot por privado con `/start`: quedás registrado como admin.
 3. Crear el grupo en Telegram con **Topics** habilitado, agregar el bot como admin
    con permiso **Manage Topics** y (en @BotFather) `/setprivacy` → **Disable**.
-4. `opencode serve` corriendo (o accesible) en `OPENCODE_API_URL` (el deploy instala OpenCode; también hay `/opencode_start`).
+4. Verificá `/status` (server healthy) o el log `opencode-serve.log`: el server
+   ya corre con autostart y password de `OPENCODE_SERVER_PASSWORD`.
 5. Probar: en General `/status` (server healthy) → `/projects` → `/new`.
