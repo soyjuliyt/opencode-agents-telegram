@@ -78,6 +78,34 @@ if ! have_node20; then
 fi
 
 echo "Using Node: $(node --version)"
+
+# Ensure the official install dir is visible in this script's PATH.
+export PATH="$HOME/.opencode/bin:$HOME/bin:$HOME/.local/bin:$PATH"
+
+ensure_opencode() {
+  if command -v opencode >/dev/null 2>&1; then
+    echo "OpenCode already installed: $(command -v opencode)"
+    return 0
+  fi
+  echo "OpenCode not found. Installing natively (single binary, full permissions)..."
+  if curl -fsSL https://opencode.ai/install | bash; then
+    if command -v opencode >/dev/null 2>&1; then
+      echo "OpenCode installed successfully: $(command -v opencode)"
+      return 0
+    fi
+  fi
+  echo "Official installer failed; falling back to npm global install."
+  npm install -g opencode-ai@latest
+  if command -v opencode >/dev/null 2>&1; then
+    echo "OpenCode installed successfully: $(command -v opencode)"
+    return 0
+  fi
+  echo "WARN: OpenCode is installed but not on the current PATH yet." >&2
+  echo "      Open a new shell and run \`opencode serve\`, or re-run the bootstrap." >&2
+  return 0
+}
+
+ensure_opencode
 ensure_repo
 
 if [ ! -f "$INSTALL_DIR/scripts/setup.mjs" ]; then

@@ -25,13 +25,15 @@ Linux systemd user service, macOS launchd agent).
 
 Options:
   --token <bot-token>          Telegram bot token (required)
-  --user-id <numeric-id>       Allowed Telegram user ID (required)
+  --user-id <numeric-id>       Allowed Telegram user ID (optional; auto-detected on first
+                               DM if omitted)
   --provider <id>              Default model provider (default: opencode)
   --model <id>                 Default model ID (default: big-pickle)
   --api-url <url>              OpenCode server URL (default: http://localhost:4096)
   --server-user <user>         OpenCode server username (default: opencode)
   --server-password <secret>   OpenCode server password (optional)
   --locale <en|es|de|fr|ru|zh> Bot UI language (default: en)
+  --no-opencode                Do not attempt to install OpenCode if missing
   --no-start                   Do not start the bot after setup
   --no-autostart               Do not install the logon autostart entry
   --no-build                   Do not run the TypeScript build
@@ -62,11 +64,11 @@ const DEFAULTS = {
   OPENCODE_SERVER_PASSWORD: "",
 };
 
-const REQUIRED = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_ID"];
+const REQUIRED = ["TELEGRAM_BOT_TOKEN"];
 
 function parseArgs(argv) {
   const flags = {};
-  const booleans = new Set(["--no-start", "--no-autostart", "--no-build", "--yes", "-y", "--dry-run", "--help", "-h"]);
+  const booleans = new Set(["--no-start", "--no-autostart", "--no-build", "--no-opencode", "--yes", "-y", "--dry-run", "--help", "-h"]);
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token.startsWith("--")) {
@@ -178,12 +180,9 @@ async function collectValues(flags, existing) {
   };
   try {
     values.TELEGRAM_BOT_TOKEN = await ask("Telegram bot token (@BotFather)", values.TELEGRAM_BOT_TOKEN, true);
-    values.TELEGRAM_ALLOWED_USER_ID = await ask("Allowed Telegram user ID (@userinfobot)", values.TELEGRAM_ALLOWED_USER_ID, true);
-    values.OPENCODE_API_URL = await ask("OpenCode server URL", values.OPENCODE_API_URL, false);
-    values.OPENCODE_SERVER_PASSWORD = await ask("OpenCode server password (if auth required)", values.OPENCODE_SERVER_PASSWORD, false);
-    values.OPENCODE_MODEL_PROVIDER = await ask("Default model provider", values.OPENCODE_MODEL_PROVIDER, false);
-    values.OPENCODE_MODEL_ID = await ask("Default model ID", values.OPENCODE_MODEL_ID, false);
-    values.BOT_LOCALE = await ask("UI locale (en/es/de/fr/ru/zh)", values.BOT_LOCALE, false);
+    if (rl) {
+      log("\nYour Telegram User ID will be detected automatically the first time you DM the bot.");
+    }
   } finally {
     if (rl) {
       rl.close();
@@ -192,7 +191,7 @@ async function collectValues(flags, existing) {
   const missing = REQUIRED.filter((key) => !values[key] || values[key].trim().length === 0);
   if (missing.length > 0) {
     log("\nMissing required values: " + missing.join(", "));
-    log("Run interactively (plain `node scripts/setup.mjs`) or pass --token / --user-id.");
+    log("Run interactively (plain `node scripts/setup.mjs`) or pass --token.");
     process.exit(2);
   }
   return values;
@@ -242,6 +241,15 @@ function installMacAutostart(nodePath) {
   const plistPath = path.join(launchDir, "com.opencode-telegram.group-topics-bot.plist");
   const logPath = path.join(repoRoot, "logs", "bot-autostart.log");
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const launchPath = [
+    ...opencodeBinCandidates().filter((p) => p),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ].join(":");
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -259,11 +267,15 @@ function installMacAutostart(nodePath) {
   <dict>
     <key>OPENCODE_TELEGRAM_HOME</key>
     <string>${repoRoot}</string>
+    <key>PATH</key>
+    <string>${launchPath}</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
   <key>StandardOutPath</key>
   <string>${logPath}</string>
   <key>StandardErrorPath</key>
@@ -273,10 +285,29 @@ function installMacAutostart(nodePath) {
 `;
   fs.writeFileSync(plistPath, plist, "utf-8");
   log(`LaunchAgent written: ${plistPath}`);
-  const bootstrap = spawnSync("launchctl", ["bootstrap", `gui/${process.getuid?.() ?? os.userInfo().uid}`, plistPath], { stdio: "inherit" });
-  if (bootstrap.status !== 0) {
-    spawnSync("launchctl", ["load", "-w", plistPath], { stdio: "inherit" });
+  return loadLaunchAgent(plistPath);
+}
+
+function loadLaunchAgent(plistPath) {
+  const domain = `gui/${os.userInfo().uid}`;
+  const bootstrap = spawnSync("launchctl", ["bootstrap", domain, plistPath], {
+    stdio: ["ignore", "inherit", "pipe"],
+  });
+  if (bootstrap.status === 0) {
+    return true;
   }
+
+  const errorText = String(bootstrap.stderr ?? "");
+  if (bootstrap.status === 5 || /already|reset/i.test(errorText)) {
+    log("LaunchAgent already loaded — skipping duplicate bootstrap.");
+    return true;
+  }
+
+  if (errorText) {
+    process.stderr.write(errorText);
+  }
+  const legacy = spawnSync("launchctl", ["load", "-w", plistPath], { stdio: "inherit" });
+  return legacy.status === 0;
 }
 
 function startDaemon() {
@@ -288,6 +319,75 @@ function startDaemon() {
     env,
     stdio: "inherit",
   });
+}
+
+function opencodeBinCandidates() {
+  if (IS_WINDOWS) {
+    return [];
+  }
+  return [
+    path.join(os.homedir(), ".opencode", "bin", "opencode"),
+    path.join(os.homedir(), "bin", "opencode"),
+    path.join(os.homedir(), ".local", "bin", "opencode"),
+    "/opt/homebrew/bin/opencode",
+    "/usr/local/bin/opencode",
+  ];
+}
+
+function opencodeOnPath() {
+  if (IS_WINDOWS) {
+    return spawnSync("where", ["opencode"], { stdio: "pipe" }).status === 0;
+  }
+  if (spawnSync("bash", ["-lc", "command -v opencode"], { stdio: "pipe" }).status === 0) {
+    return true;
+  }
+  return opencodeBinCandidates().some((candidate) => fs.existsSync(candidate));
+}
+
+function runBestEffort(cmd, args) {
+  const result = spawnSync(cmd, args, { stdio: "inherit", shell: IS_WINDOWS });
+  if (result.status !== 0) {
+    log(`WARN: command failed (exit ${result.status ?? "null"}): ${cmd} ${args.join(" ")}`);
+    return false;
+  }
+  return true;
+}
+
+function ensureOpencode(opts) {
+  step("Checking OpenCode CLI");
+  if (opencodeOnPath()) {
+    log("OpenCode is already installed.");
+    return;
+  }
+
+  if (opts?.disabled) {
+    log("OpenCode not found and --no-opencode was passed — skipping install.");
+    return;
+  }
+
+  log("OpenCode not found. Installing natively (single binary, full permissions)...");
+  if (IS_WINDOWS) {
+    runBestEffort("npm.cmd", ["install", "-g", "opencode-ai@latest"]);
+  } else {
+    const installScript = spawnSync(
+      "bash",
+      ["-lc", "curl -fsSL https://opencode.ai/install | bash"],
+      { stdio: "inherit" },
+    );
+    if (installScript.status !== 0) {
+      log("Official installer failed; falling back to npm global install.");
+      runBestEffort("npm", ["install", "-g", "opencode-ai@latest"]);
+    }
+  }
+
+  if (opencodeOnPath()) {
+    log("OpenCode installed successfully.");
+  } else {
+    log(
+      "WARN: OpenCode is installed but not on the current PATH yet.\n" +
+        "      Open a new shell and run `opencode serve`, or re-run the bootstrap.",
+    );
+  }
 }
 
 function managementSummary() {
@@ -329,6 +429,11 @@ async function main() {
   }
 
   const dry = Boolean(flags["--dry-run"]);
+
+  if (!dry) {
+    ensureOpencode({ disabled: Boolean(flags["--no-opencode"]) });
+  }
+
   if (dry) {
     log("--- dry-run: no changes will be made ---");
   }
@@ -363,13 +468,14 @@ async function main() {
     writeEnvFile({ ...envFile, values });
   }
 
+  let macAgentLoaded = false;
   if (!dry && !flags["--no-autostart"]) {
     if (IS_WINDOWS) {
       installWindowsAutostart();
     } else if (process.platform === "linux") {
       installLinuxAutostart(process.execPath);
     } else if (process.platform === "darwin") {
-      installMacAutostart(process.execPath);
+      macAgentLoaded = installMacAutostart(process.execPath);
     } else {
       log(`Autostart not implemented for platform ${process.platform}; run the bot manually.`);
     }
@@ -389,7 +495,14 @@ async function main() {
     } else if (process.platform === "darwin") {
       step("Starting the bot via LaunchAgent");
       const plistPath = path.join(os.homedir(), "Library", "LaunchAgents", "com.opencode-telegram.group-topics-bot.plist");
-      spawnSync("launchctl", ["bootstrap", `gui/${os.userInfo().uid}`, plistPath], { stdio: "inherit" });
+      if (!macAgentLoaded) {
+        macAgentLoaded = loadLaunchAgent(plistPath);
+      } else {
+        log("LaunchAgent already running — nothing to do.");
+      }
+      if (macAgentLoaded) {
+        spawnSync("launchctl", ["kickstart", `gui/${os.userInfo().uid}/com.opencode-telegram.group-topics-bot`], { stdio: "inherit" });
+      }
     }
   }
 

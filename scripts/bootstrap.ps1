@@ -95,8 +95,28 @@ function Resolve-Repository {
   Copy-Item -Path (Join-Path $extracted.FullName "*") -Destination $InstallDir -Recurse -Force
 }
 
+function Ensure-OpenCode {
+  param([string]$NodeExe)
+  Write-Host "Checking OpenCode CLI..."
+  if (Get-Command opencode -ErrorAction SilentlyContinue) {
+    Write-Host "OpenCode already installed."
+    return
+  }
+  Write-Host "OpenCode not found. Installing via npm (native, full permissions)..."
+  $nodeDir = Split-Path $NodeExe
+  $npmCommand = Join-Path $nodeDir "npm.cmd"
+  if (-not (Test-Path -LiteralPath $npmCommand)) {
+    $npmCommand = "npm"
+  }
+  & $npmCommand install -g opencode-ai@latest
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "WARN: npm failed to install opencode-ai. Install it manually with: npm i -g opencode-ai" -ForegroundColor Yellow
+  }
+}
+
 $nodeExe = Resolve-Node
 Write-Host "Using Node: $nodeExe"
+Ensure-OpenCode -NodeExe $nodeExe
 Resolve-Repository
 
 $setupScript = Join-Path $InstallDir "scripts\setup.mjs"
