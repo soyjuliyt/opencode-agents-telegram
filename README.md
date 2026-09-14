@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org)
-[![Tests](https://img.shields.io/badge/tests-527%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-539%20passing-brightgreen)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)]()
 
 **Languages:** English (`en`), Deutsch (`de`), Español (`es`), Français (`fr`), Русский (`ru`), [简体中文 (`zh-CN`)](./README.zh-CN.md)
@@ -104,10 +104,11 @@ Not in-memory state that vanishes on restart — **better-sqlite3** under the ho
 ## Quick Start
 
 ### Prerequisites
-- Node.js 20+
-- [OpenCode](https://opencode.ai) installed (`opencode serve` works)
+- Nothing to install by hand on Linux/macOS: the bootstrap installs **Node.js 20+** and **OpenCode** natively when missing.
+- Windows needs PowerShell 5.1+ (the bootstrap also installs Node via winget and OpenCode via npm).
 - Telegram bot token from [@BotFather](https://t.me/BotFather)
-- Your numeric Telegram user ID from [@userinfobot](https://t.me/userinfobot)
+
+> Your Telegram User ID is **not** required anymore: the first person who DMs the bot `/start` becomes the admin automatically.
 
 ### 1. Create the Supergroup
 1. New **Supergroup** in Telegram
@@ -141,8 +142,8 @@ opencode-telegram-group-topics-bot start --daemon
 
 **Option C: From source**
 ```bash
-git clone https://github.com/shanekunz/opencode-telegram-group-topics-bot.git
-cd opencode-telegram-group-topics-bot
+git clone https://github.com/soyjuliyt/opencode-agents-telegram.git
+cd opencode-agents-telegram
 npm install
 npm run build
 node dist/cli.js config --mode sources
@@ -150,10 +151,10 @@ npm run dev
 ```
 
 ### 4. Setup Wizard
-The CLI walks you through language, bot token, allowed user ID, and optional OpenCode server auth.
+The CLI walks you through the **language** and your **bot token** only. Everything else gets sensible defaults; the OpenCode server URL, model and credentials can be changed later in `.env` or via setup flags.
 
 ### 5. Verify
-1. DM the bot → `/start` → confirm reply
+1. DM the bot → `/start` → you are adopted as admin instantly (ownership is saved to `.env`)
 2. In group **General** → `/start` → `/status` (OpenCode should show healthy)
 3. `/projects` → pick a repo
 4. `/new` → creates a session topic
@@ -162,9 +163,10 @@ The CLI walks you through language, bot token, allowed user ID, and optional Ope
 ### Deploy on any machine (one-shot)
 
 Windows, Linux or macOS, **no Docker, native install**. The one-liner installs
-Node.js 20+, fetches this repo and runs the universal setup: writes `.env`
-(wizard or flags), builds, starts the bot **hidden in the background** and
-installs logon autostart (Startup VBS / systemd / launchd) by default.
+Node.js 20+ **and OpenCode** when missing, fetches this repo and runs the
+universal setup: writes `.env` (token only — the rest is wizard or flags),
+builds, starts the bot **hidden in the background** and installs logon autostart
+(Startup VBS / systemd / launchd) by default.
 
 ```powershell
 # Windows
@@ -242,9 +244,11 @@ Already have Node and the repo? Just `npm run deploy` (or
 ```env
 # Required
 TELEGRAM_BOT_TOKEN=xxx
-TELEGRAM_ALLOWED_USER_ID=123456789
 OPENCODE_MODEL_PROVIDER=opencode
 OPENCODE_MODEL_ID=big-pickle
+
+# Optional — auto-captured from the first /start DM if omitted
+TELEGRAM_ALLOWED_USER_ID=
 
 # Optional but powerful
 OPENCODE_API_URL=http://localhost:4096
@@ -364,7 +368,7 @@ If you want **one group to rule them all** → this fork.
 | Variable | Description | Required | Default |
 |----------|-------------|:--------:|---------|
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | Yes | — |
-| `TELEGRAM_ALLOWED_USER_ID` | Your numeric Telegram user ID | Yes | — |
+| `TELEGRAM_ALLOWED_USER_ID` | Your numeric Telegram user ID (auto-detected on first `/start` DM if empty) | No | `0` (onboarding) |
 | `TELEGRAM_PROXY_URL` | Proxy for Telegram API (SOCKS5/HTTP) | No | — |
 | `OPENCODE_API_URL` | OpenCode server URL | No | `http://localhost:4096` |
 | `OPENCODE_SERVER_USERNAME` | Server auth username | No | `opencode` |
@@ -402,8 +406,8 @@ If you want **one group to rule them all** → this fork.
 ## Development
 
 ```bash
-git clone https://github.com/shanekunz/opencode-telegram-group-topics-bot.git
-cd opencode-telegram-group-topics-bot
+git clone https://github.com/soyjuliyt/opencode-agents-telegram.git
+cd opencode-agents-telegram
 npm install
 npm run build
 node dist/cli.js config --mode sources
@@ -418,7 +422,7 @@ npm run dev
 | `npm start` | Run compiled |
 | `npm run lint` | ESLint (zero warnings) |
 | `npm run format` | Prettier |
-| `npm test` | Vitest (527 tests) |
+| `npm test` | Vitest (539 tests) |
 | `npm run test:coverage` | Coverage report |
 | `npm run deploy` | Universal one-shot deploy (wizard/flags, build, hidden start, autostart) |
 | `npm run autostart:install` | Windows: arrancar con tu sesión + iniciar ya (no root) |
